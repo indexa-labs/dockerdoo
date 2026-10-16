@@ -55,15 +55,10 @@ RUN apt-get -qq update \
     python3-xlwt \
     # Other dependencies
     git-core \
-    htop \
     ffmpeg \
     fonts-liberation2 \
     lsb-release \
-    nano \
-    ssh \
-    sudo \
     unzip \
-    vim \
     zip \
     xz-utils \
     && \
@@ -137,17 +132,12 @@ RUN git init /opt/odoo \
     && pip3 -qq install --prefix=/usr/local --no-cache-dir --upgrade \
     rlpycairo \
     'websocket-client~=0.56' \
-    astor \
-    black \
-    pylint-odoo \
-    flake8 \
-    pydevd-odoo \
+    packaging \
     psycogreen \
     click-odoo-contrib \
     git-aggregator \
     inotify \
     python-json-logger \
-    wdb \
     redis \
     phonenumbers \
     && apt-get autopurge -yqq \
@@ -184,9 +174,7 @@ ARG APP_GID
 ENV APP_GID=${APP_GID}
 
 RUN addgroup --system --gid ${APP_GID} ${ODOO_USER} \
-    && adduser --system --uid ${APP_UID} --ingroup ${ODOO_USER} --home ${ODOO_BASEPATH} --disabled-login --shell /bin/bash ${ODOO_USER} \
-    && echo ${ODOO_USER} ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/${ODOO_USER}\
-    && chmod 0440 /etc/sudoers.d/${ODOO_USER}
+    && adduser --system --uid ${APP_UID} --ingroup ${ODOO_USER} --home ${ODOO_BASEPATH} --disabled-login --shell /bin/bash ${ODOO_USER}
 
 # Odoo Configuration file variables and defaults
 ARG ADMIN_PASSWORD
@@ -203,7 +191,7 @@ ARG DBNAME
 ARG SERVER_WIDE_MODULES
 
 ENV \
-    ADMIN_PASSWORD=${ADMIN_PASSWORD:-my-weak-password} \
+    ADMIN_PASSWORD=${ADMIN_PASSWORD} \
     ODOO_DATA_DIR=${ODOO_DATA_DIR:-/var/lib/odoo/data} \
     DB_PORT_5432_TCP_ADDR=${PGHOST:-db} \
     DB_MAXCONN=${DB_MAXCONN:-64} \
@@ -212,10 +200,10 @@ ENV \
     DB_SSLMODE=${DB_SSLMODE:-prefer} \
     DB_TEMPLATE=${DB_TEMPLATE:-template1} \
     DB_ENV_POSTGRES_USER=${PGUSER:-odoo} \
-    DBFILTER=${DBFILTER:-.*} \
+    DBFILTER=${DBFILTER} \
     DBNAME=${DBNAME} \
     HTTP_INTERFACE=${HTTP_INTERFACE:-0.0.0.0} \
-    HTTP_PORT=${HTTP_PORT:-8069} \
+    HTTP_PORT=${HTTP_PORT} \
     ODOO_HEALTHCHECK_PATH=${ODOO_HEALTHCHECK_PATH:-/web/health} \
     LIMIT_REQUEST=${LIMIT_REQUEST:-8196} \
     LIMIT_MEMORY_HARD=${LIMIT_MEMORY_HARD:-2684354560} \
@@ -223,7 +211,7 @@ ENV \
     LIMIT_TIME_CPU=${LIMIT_TIME_CPU:-60} \
     LIMIT_TIME_REAL=${LIMIT_TIME_REAL:-120} \
     LIMIT_TIME_REAL_CRON=${LIMIT_TIME_REAL_CRON:-0} \
-    LIST_DB=${LIST_DB:-True} \
+    LIST_DB=${LIST_DB:-False} \
     LOG_DB=${LOG_DB:-False} \
     LOG_DB_LEVEL=${LOG_DB_LEVEL:-warning} \
     LOGFILE=${LOGFILE:-None} \
@@ -240,7 +228,14 @@ ENV \
     TEST_ENABLE=${TEST_ENABLE:-False} \
     UNACCENT=${UNACCENT:-False} \
     WITHOUT_DEMO=${WITHOUT_DEMO:-False} \
-    WORKERS=${WORKERS:-0}
+    WORKERS=${WORKERS:-0} \
+    DB_WAIT_TIMEOUT=${DB_WAIT_TIMEOUT:-60} \
+    AUTO_INIT=${AUTO_INIT:-0} \
+    AUTO_UPGRADE=${AUTO_UPGRADE:-0} \
+    AUTO_UPGRADE_SNAPSHOT=${AUTO_UPGRADE_SNAPSHOT:-0} \
+    INIT_MODULES=${INIT_MODULES:-base} \
+    INIT_LANGUAGE=${INIT_LANGUAGE:-en_US} \
+    INIT_ADMIN_LOGIN=${INIT_ADMIN_LOGIN:-admin}
 
 # camptocamp variables (to be used on cloud deployments)
 # Sessions in Redis
@@ -311,6 +306,7 @@ COPY --link --chown=${APP_UID}:${APP_GID} --from=builder /opt/odoo ${ODOO_BASEPA
 # Copy from build env
 COPY --link --chown=${APP_UID}:${APP_GID} ./resources/entrypoint.sh /
 COPY --link --chown=${APP_UID}:${APP_GID} ./resources/getaddons.py /
+COPY --link --chown=${APP_UID}:${APP_GID} ./resources/dockerdoo_init.py /
 
 # This is needed to fully build with modules and python requirements
 # Copy custom modules from the custom folder, if any.
@@ -318,15 +314,31 @@ ARG HOST_CUSTOM_ADDONS
 ENV HOST_CUSTOM_ADDONS=${HOST_CUSTOM_ADDONS:-./custom}
 COPY --link --chown=${APP_UID}:${APP_GID} ${HOST_CUSTOM_ADDONS} ${ODOO_EXTRA_ADDONS}
 
-RUN chmod u+x /entrypoint.sh
+RUN chmod 0755 /entrypoint.sh /dockerdoo_init.py
 
 EXPOSE 8069 8071 8072
 
 # Docker healthcheck command
-HEALTHCHECK CMD curl --fail --silent --show-error "http://127.0.0.1:${HTTP_PORT}${ODOO_HEALTHCHECK_PATH}" || exit 1
+# HTTP_PORT, then the platform's PORT, then Odoo's default; the entrypoint resolves the same order.
+HEALTHCHECK CMD curl --fail --silent --show-error "http://127.0.0.1:${HTTP_PORT:-${PORT:-8069}}${ODOO_HEALTHCHECK_PATH}" || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
 
 USER ${ODOO_USER}
 
 CMD ["/opt/odoo/odoo-bin"]
+
+# Developer tools and passwordless sudo stay out of the published production image.
+FROM production AS development
+
+USER root
+
+# hadolint ignore=DL3008
+RUN apt-get -qq update \
+    && apt-get -qq install -y --no-install-recommends htop nano ssh sudo vim \
+    && rm -rf /var/lib/apt/lists/* \
+    && echo "${ODOO_USER} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${ODOO_USER} \
+    && chmod 0440 /etc/sudoers.d/${ODOO_USER} \
+    && pip3 install --prefix=/usr/local --no-cache-dir astor black pylint-odoo flake8 pydevd-odoo wdb
+
+USER ${ODOO_USER}
