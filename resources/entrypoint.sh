@@ -2,12 +2,39 @@
 
 # Do not enable xtrace: expanded environment and generated config contain secrets.
 
+# Hosted platforms often mount volumes owned by root and start the container as root to allow
+# writing to them. Hand the data directories to the Odoo user and continue without root.
+if [ "$(id -u)" = "0" ] && [ "${ODOO_RUN_AS_ROOT:-0}" != "1" ]; then
+    for dir in "${ODOO_DATA_DIR}" "${ODOO_LOGS_DIR}"; do
+        mkdir -p "${dir}"
+        find "${dir}" -xdev ! -user "${APP_UID}" -exec chown "${APP_UID}:${APP_GID}" {} +
+    done
+    chown "${APP_UID}:${APP_GID}" /etc/odoo
+    export HOME="${ODOO_BASEPATH}"
+    exec setpriv --reuid="${APP_UID}" --regid="${APP_GID}" --init-groups "$0" "$@"
+fi
+
 # set the postgres database host, port, user and password according to the environment
 # and pass them as arguments to the odoo process if not present in the config file
 : ${PGHOST:=${DB_PORT_5432_TCP_ADDR}}
 : ${PGPORT:=${DB_PORT_5432_TCP_PORT}}
 : ${PGUSER:=${DB_ENV_POSTGRES_USER:=${POSTGRES_USER}}}
 : ${PGPASSWORD:=${DB_ENV_POSTGRES_PASSWORD:=${POSTGRES_PASSWORD}}}
+export PGHOST PGPORT PGUSER PGPASSWORD
+
+# An explicit HTTP_PORT wins, then the platform's PORT, then Odoo's default.
+export HTTP_PORT="${HTTP_PORT:-${PORT:-8069}}"
+
+# Serve only the configured database unless a filter is given.
+if [ -z "${DBFILTER}" ]; then
+    if [ -n "${DBNAME}" ]; then DBFILTER="^${DBNAME}\$"; else DBFILTER=".*"; fi
+fi
+
+# Never fall back to a well-known master password.
+if [ -z "${ADMIN_PASSWORD}" ]; then
+    ADMIN_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+    echo "ADMIN_PASSWORD is not set: using a random master password for this container"
+fi
 
 # set all variables
 
@@ -140,6 +167,9 @@ case "$1" in
             fi
             
         else
+            # Wait for PostgreSQL, create the application role, and create or upgrade the database.
+            python3 /dockerdoo_init.py || exit $?
+            unset DB_ADMIN_URL INIT_ADMIN_PASSWORD
             if [[ "$UPGRADE_ODOO" -eq "1" ]] ; then
                 ODOO_DB_LIST=$(psql -X -A -h ${PGHOST} -p ${PGPORT} -U ${PGUSER} -d postgres -t -c "SELECT STRING_AGG(datname, ' ') FROM pg_database WHERE datdba=(SELECT usesysid FROM pg_user WHERE usename=current_user) AND NOT datistemplate and datallowconn")
                 for db in ${ODOO_DB_LIST}; do
