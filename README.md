@@ -9,12 +9,40 @@ Dockerdoo includes a VS Code Dev Containers setup with the Python and Debugpy ex
 
 ## Pre-built Images
 
-The maintained versions are **Odoo 18, 19, and 20**, following the stable releases on the [official nightly site](https://nightly.odoo.com/). GitHub Actions builds and tests each version on native `linux/amd64` and `linux/arm64` runners before publishing to:
+This fork of [iterativo-git/dockerdoo](https://github.com/iterativo-git/dockerdoo) maintains **Odoo 20**. GitHub Actions builds the current `20.0` branch weekly and on every change, tests it on native `linux/amd64` and `linux/arm64` runners, and publishes it to the GitHub Container Registry with a signed build provenance attestation:
 
-- **GitHub Container Registry**: `ghcr.io/iterativo-git/dockerdoo:<odoo_version>` (e.g., `ghcr.io/iterativo-git/dockerdoo:18.0`)
-- **Docker Hub**: `iterativodo/dockerdoo:<odoo_version>`
+| Tag | Meaning |
+| --- | --- |
+| `ghcr.io/indexa-labs/dockerdoo:20.0` | Newest tested build |
+| `ghcr.io/indexa-labs/dockerdoo:20.0-YYYYMMDD` | One dated build; never moves |
+| `ghcr.io/indexa-labs/dockerdoo:20.0.YYYYMMDD` | The same build as a semver tag, for platforms that auto-update within a series |
 
-You can often pull a pre-built image directly (by ensuring `image: iterativodo/dockerdoo:\${ODOO_VERSION}` is set in your compose file and `ODOO_VERSION` is defined in `.env`) instead of building it locally, saving time.
+Pin a dated tag or a digest in production. Verify an image with `gh attestation verify oci://ghcr.io/indexa-labs/dockerdoo:20.0 --owner indexa-labs`.
+
+The published image is the `production` target: no `sudo`, no developer tools, no default master password, and the database manager locked. The `development` target adds `sudo` and debugging tools for local work.
+
+## Hosted platforms
+
+Platforms such as Railway, Render, or Kubernetes start one container per service, give it a port, and often mount a volume owned by root. The image handles these without a wrapper:
+
+| Variable | Effect |
+| --- | --- |
+| `PORT` | Odoo listens on it when `HTTP_PORT` is not set; the health check follows |
+| `DB_WAIT_TIMEOUT` | Seconds to wait for PostgreSQL before the server starts (default `60`) |
+| `DB_ADMIN_URL` | PostgreSQL administrator URL. At start, creates or updates `PGUSER` with `PGPASSWORD` as a login role that may create databases but is not a superuser, because Odoo refuses to run as `postgres`. It is removed from the server's environment |
+| `DBNAME` | The database to serve. Unless `DBFILTER` is set, the server serves only this database |
+| `AUTO_INIT` | `1` creates `DBNAME` when it is missing and installs every module in `INIT_MODULES` that is not installed |
+| `INIT_MODULES` | Comma-separated modules to install (default `base`) |
+| `INIT_ADMIN_LOGIN`, `INIT_ADMIN_PASSWORD` | Administrator of a new database. The password is set through Odoo, never on a command line |
+| `INIT_LANGUAGE`, `INIT_COUNTRY` | Language and country for database creation (default `en_US`) |
+| `INIT_LOAD_LANGUAGES` | Comma-separated languages to activate after the modules install; the first becomes the administrator's language |
+| `AUTO_UPGRADE` | `1` upgrades installed modules whose manifest version is newer than the database. A failure stops the container before the server starts |
+| `AUTO_UPGRADE_SNAPSHOT` | `1` copies the database before upgrading and restores the copy if the upgrade fails |
+| `ODOO_RUN_AS_ROOT` | `1` keeps root. By default, a container started as root takes ownership of `ODOO_DATA_DIR` and `ODOO_LOGS_DIR` and drops to the `odoo` user |
+
+Database creation and upgrades run under a PostgreSQL advisory lock, so containers started together change a database once. A restart with nothing to do adds a few queries to the start. When `ADMIN_PASSWORD` is not set, each container uses a random master password, and `LIST_DB` defaults to `False`.
+
+Odoo 20 serves websockets on a separate port when `WORKERS` is above zero. A platform that routes one port per service needs either `WORKERS=0` or a reverse proxy in front of both ports.
 
 ## Quick usage
 
@@ -143,7 +171,7 @@ There are two primary ways to handle your custom addons:
     ```dockerfile
     # Example Dockerfile to add your custom modules
     ARG ODOO_VERSION=18.0 # Or your desired version
-    FROM iterativodo/dockerdoo:${ODOO_VERSION}
+    FROM ghcr.io/indexa-labs/dockerdoo:20.0
 
     # Set standard environment variable (can be overridden)
     ENV ODOO_EXTRA_ADDONS=/mnt/extra-addons
@@ -176,8 +204,8 @@ The base Compose file does not mount host SSH keys. If a local development workf
 
 ## Exposed Ports
 
-- `8069`: Odoo HTTP interface
-- `8072`: Odoo Longpolling port
+- `8069`: Odoo HTTP interface, or `PORT` when the platform sets it
+- `8072`: Odoo websocket port when `WORKERS` is above zero
 
 ## Project Structure
 
@@ -203,14 +231,17 @@ your-project/
 
 ## Image checks
 
-CI resolves each maintained Odoo branch once per run, installs dependencies from that same checkout, and tests the loaded image before registry login or publication. Version tags are updated only after all six version/architecture jobs pass. Pull requests run the checks without registry credentials. Older branches and previously published tags are retained outside this matrix.
+CI resolves the Odoo 20 branch once per run, installs dependencies from that same checkout, and tests the loaded image before registry login or publication. Tags are updated only after both architecture jobs pass. Pull requests run the checks without registry credentials. Older branches and previously published tags are retained outside this matrix.
 
 To run the same check against a local image:
 
 ```shell
-docker build --build-arg ODOO_VERSION=20.0 -t dockerdoo-local:20.0 .
+docker build --target production --build-arg ODOO_VERSION=20.0 -t dockerdoo-local:20.0 .
 python3 tests/test_runtime.py --image dockerdoo-local:20.0 --odoo-version 20.0 --native-tests
+python3 tests/test_hosted.py --image dockerdoo-local:20.0
 ```
+
+`tests/test_hosted.py` starts the container as root on a root-owned volume with a platform `PORT`, before PostgreSQL is reachable, against a PostgreSQL that only has a superuser. It checks that the server drops to the `odoo` user, creates a restricted role, creates and serves only its database, locks the database manager, does nothing on restart, upgrades a module whose version changed, and initializes once when two containers start together.
 
 The check uses disposable Compose services and generated credentials. It verifies database permissions, runs Odoo's base suite with the existing entrypoint exclusions, then checks HTTP health, image health, and database restart behavior. It removes its containers and volumes and prints the location of its logs. Browser tests require Chrome and are not covered by this image check.
 
