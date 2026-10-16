@@ -8,36 +8,24 @@ on:
     branches: [main]
     paths:
       - .dockerignore
-      - .devcontainer/**
-      - .env
       - .env.example
       - .github/workflows/**
       - Dockerfile
       - config/**
       - custom/**
-      - dev-hosted.yml
-      - dev-standalone.yml
       - docker-compose.yml
-      - hosted.yml
       - resources/**
-      - test-env.yml
       - tests/**
   pull_request:
     paths:
       - .dockerignore
-      - .devcontainer/**
-      - .env
       - .env.example
       - .github/workflows/**
       - Dockerfile
       - config/**
       - custom/**
-      - dev-hosted.yml
-      - dev-standalone.yml
       - docker-compose.yml
-      - hosted.yml
       - resources/**
-      - test-env.yml
       - tests/**
 
 permissions:
@@ -47,47 +35,34 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  IMAGE: ghcr.io/indexa-labs/dockerdoo
+
 jobs:
   resolve_odoo_refs:
-    name: Resolve current Odoo branches
+    name: Resolve the current Odoo 20 commit
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.refs.outputs.matrix }}
+      image: ${{ steps.refs.outputs.image }}
     steps:
-      - name: Resolve each branch once for this run
+      - name: Resolve the branch once for this run
         id: refs
         shell: bash
         run: |
           set -euo pipefail
-
-          resolve_ref() {
-            local version="$1"
-            local ref
-            ref="$(git ls-remote https://github.com/odoo/odoo.git "refs/heads/${version}" | cut -f1)"
-            if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "Could not resolve Odoo branch ${version}" >&2
-              return 1
-            fi
-            echo "Resolved Odoo ${version} to ${ref}" >&2
-            printf '%s' "$ref"
-          }
-
-          ref18="$(resolve_ref 18.0)"
-          ref19="$(resolve_ref 19.0)"
-          ref20="$(resolve_ref 20.0)"
-          matrix="$(jq -cn \
-            --arg ref18 "$ref18" \
-            --arg ref19 "$ref19" \
-            --arg ref20 "$ref20" \
-            '{include:[
-              {odoo_version:"18.0",odoo_ref:$ref18,platform:"linux/amd64",runner:"ubuntu-latest",arch:"amd64"},
-              {odoo_version:"18.0",odoo_ref:$ref18,platform:"linux/arm64",runner:"ubuntu-24.04-arm",arch:"arm64"},
-              {odoo_version:"19.0",odoo_ref:$ref19,platform:"linux/amd64",runner:"ubuntu-latest",arch:"amd64"},
-              {odoo_version:"19.0",odoo_ref:$ref19,platform:"linux/arm64",runner:"ubuntu-24.04-arm",arch:"arm64"},
-              {odoo_version:"20.0",odoo_ref:$ref20,platform:"linux/amd64",runner:"ubuntu-latest",arch:"amd64"},
-              {odoo_version:"20.0",odoo_ref:$ref20,platform:"linux/arm64",runner:"ubuntu-24.04-arm",arch:"arm64"}
-            ]}')"
+          ref="$(git ls-remote https://github.com/odoo/odoo.git refs/heads/20.0 | cut -f1)"
+          if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Could not resolve Odoo branch 20.0" >&2
+            exit 1
+          fi
+          echo "Resolved Odoo 20.0 to ${ref}" >&2
+          matrix="$(jq -cn --arg ref "$ref" '{include:[
+            {odoo_version:"20.0",odoo_ref:$ref,platform:"linux/amd64",runner:"ubuntu-latest",arch:"amd64"},
+            {odoo_version:"20.0",odoo_ref:$ref,platform:"linux/arm64",runner:"ubuntu-24.04-arm",arch:"arm64"}
+          ]}')"
           echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
 
   build_test_pull_request:
     name: Build and test without registry access
@@ -104,12 +79,13 @@ jobs:
       odoo_ref: ${{ matrix.odoo_ref }}
       platform: ${{ matrix.platform }}
       runner: ${{ matrix.runner }}
+      image: ${{ needs.resolve_odoo_refs.outputs.image }}
       stage_tag: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.odoo_version }}-${{ matrix.arch }}
       publish_stage: false
 
   build_test_main:
     name: Build, test and stage trusted images
-    if: ${{ github.repository == 'iterativo-git/dockerdoo' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+    if: ${{ github.repository == 'indexa-labs/dockerdoo' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     needs: resolve_odoo_refs
     permissions:
       contents: read
@@ -123,25 +99,21 @@ jobs:
       odoo_ref: ${{ matrix.odoo_ref }}
       platform: ${{ matrix.platform }}
       runner: ${{ matrix.runner }}
+      image: ${{ needs.resolve_odoo_refs.outputs.image }}
       stage_tag: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.odoo_version }}-${{ matrix.arch }}
       publish_stage: true
-    secrets:
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
 
-  publish_tested_manifests:
-    name: Publish tested Odoo ${{ matrix.odoo_version }} manifest
-    if: ${{ github.repository == 'iterativo-git/dockerdoo' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+  publish_tested_manifest:
+    name: Publish the tested Odoo 20 manifest
+    if: ${{ github.repository == 'indexa-labs/dockerdoo' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     needs:
       - build_test_main
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        odoo_version: ["18.0", "19.0", "20.0"]
+      id-token: write
+      attestations: write
     steps:
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3.4.0
@@ -150,32 +122,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3.4.0
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.10.0
 
-      - name: Create version manifests from tested platform images
+      # 20.0 follows the newest tested build. 20.0.YYYYMMDD is valid semver, so platforms
+      # that auto-update by semver move between dated builds of the same Odoo series.
+      - name: Create the multi-platform manifest from the tested images
+        id: manifest
         env:
-          ODOO_VERSION: ${{ matrix.odoo_version }}
-          IMAGE: ghcr.io/iterativo-git/dockerdoo
-          DOCKER_HUB_IMAGE: iterativodo/dockerdoo
-          STAGE_PREFIX: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.odoo_version }}
+          STAGE_PREFIX: ci-${{ github.run_id }}-${{ github.run_attempt }}-20.0
         run: |
           set -euo pipefail
-          amd64="${IMAGE}:${STAGE_PREFIX}-amd64"
-          arm64="${IMAGE}:${STAGE_PREFIX}-arm64"
-          docker_hub_amd64="${DOCKER_HUB_IMAGE}:${STAGE_PREFIX}-amd64"
-          docker_hub_arm64="${DOCKER_HUB_IMAGE}:${STAGE_PREFIX}-arm64"
+          day="$(date -u +%Y%m%d)"
           docker buildx imagetools create \
-            --tag "${IMAGE}:${ODOO_VERSION}" \
-            "$amd64" "$arm64"
-          docker buildx imagetools create \
-            --tag "${DOCKER_HUB_IMAGE}:${ODOO_VERSION}" \
-            "$docker_hub_amd64" "$docker_hub_arm64"
-          docker buildx imagetools inspect "${IMAGE}:${ODOO_VERSION}"
-          docker buildx imagetools inspect "${DOCKER_HUB_IMAGE}:${ODOO_VERSION}"
+            --tag "${IMAGE}:20.0" \
+            --tag "${IMAGE}:20.0-${day}" \
+            --tag "${IMAGE}:20.0.${day}" \
+            "${IMAGE}:${STAGE_PREFIX}-amd64" "${IMAGE}:${STAGE_PREFIX}-arm64"
+          digest="$(docker buildx imagetools inspect "${IMAGE}:20.0-${day}" --format '{{json .Manifest}}' | jq -r .digest)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "Published ${IMAGE}:20.0-${day}@${digest}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2.3.0
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.manifest.outputs.digest }}
+          push-to-registry: true
