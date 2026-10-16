@@ -4,6 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: production
       args:
         - ODOO_VERSION=${ODOO_VERSION}
         - PYTHON_VERSION=${PYTHON_VERSION}
