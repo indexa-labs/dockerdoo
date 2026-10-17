@@ -96,6 +96,7 @@ jobs:
           path: |
             /tmp/dockerdoo-test-*
             !/tmp/dockerdoo-test-*/test.env
+            /tmp/dkhosted-logs-*
           if-no-files-found: ignore
           retention-days: 7
 

@@ -22,6 +22,8 @@ tag = 'dkhosted-' + secrets.token_hex(3)
 net, pg, volume = tag + '-net', tag + '-pg', tag + '-data'
 admin_password, app_password, odoo_password = secrets.token_hex(12), secrets.token_hex(12), secrets.token_hex(12)
 addons = Path(tempfile.mkdtemp(prefix='dkhosted-addons-'))
+# The container's odoo user rarely shares the runner's uid, so the mounted add-ons must be world-readable.
+addons.chmod(0o755)
 logs = Path(tempfile.mkdtemp(prefix='dkhosted-logs-'))
 secrets_ = [admin_password, app_password, odoo_password]
 result = {'image': args.image}
@@ -49,6 +51,8 @@ def psql(query, user='pgadmin', password=admin_password, db='postgres'):
 def module(version):
     root = addons / 'probe' / 'probe_hosted'
     root.mkdir(parents=True, exist_ok=True)
+    for folder in (root.parent, root):
+        folder.chmod(0o755)
     (root / '__init__.py').write_text('')
     (root / '__manifest__.py').write_text(repr({'name': 'Probe hosted', 'version': version, 'depends': ['base'],
                                                 'installable': True, 'license': 'LGPL-3'}))
@@ -76,7 +80,8 @@ def wait_healthy(name, timeout=600):
     while time.monotonic() < deadline:
         state = sh(['docker', 'inspect', '-f', '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}', name]).stdout.split()
         if state[0] != 'running':
-            raise RuntimeError(f'{name} stopped: ' + redact(sh(['docker', 'logs', name], check=False).stdout[-3000:]))
+            output = sh(['docker', 'logs', name], check=False)
+            raise RuntimeError(f'{name} stopped: ' + redact(output.stdout[-1500:] + output.stderr[-2500:]))
         if len(state) > 1 and state[1] == 'healthy':
             return round(timeout - (deadline - time.monotonic()), 1)
         time.sleep(1)
