@@ -22,6 +22,7 @@ Odoo 20 reads every server option from `ODOO_<OPTION>` (for example `ODOO_WORKER
 | `ODOO_DBFILTER` | `^$PGDATABASE$` when `PGDATABASE` is set |
 | `ODOO_ADMIN_PASSWD` | A random master password per container |
 | `ODOO_LIST_DB` | `False` |
+| `ODOO_HTTP_INTERFACE` | `0.0.0.0` (Odoo's own default is `127.0.0.1`) |
 | `ODOO_ADDONS_PATH` | Add-on folders found under `/mnt/extra-addons`, then Odoo's add-ons |
 | `ODOO_DATA_DIR` | `/var/lib/odoo/data`; mount the volume here |
 
