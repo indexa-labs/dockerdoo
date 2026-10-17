@@ -41,7 +41,9 @@ def sql(query, db='postgres'):
 def module(version):
     root = addons / 'probe' / 'probe_hosted'
     root.mkdir(parents=True, exist_ok=True)
-    (root / '__init__.py').write_text('')
+    # A later version adds a stored field, which the upgrade must create before Odoo reads partners.
+    (root / '__init__.py').write_text('' if version == '1.0' else 'from odoo import fields, models\n\n\n'
+                                      'class ResPartner(models.Model):\n    _inherit = "res.partner"\n    probe_hosted = fields.Char()\n')
     (root / '__manifest__.py').write_text(repr({'name': 'Probe', 'version': version, 'depends': ['base'], 'license': 'LGPL-3'}))
     # The image's odoo user rarely shares the runner's uid.
     for path in (addons, root.parent, root):
@@ -114,6 +116,7 @@ try:
     healthy(first + 'n')
     assert created(first + 'n') == 0
     assert sql("SELECT latest_version FROM ir_module_module WHERE name = 'probe_hosted'", 'probe') == '20.0.1.1'
+    assert sql("SELECT count(*) FROM information_schema.columns WHERE table_name = 'res_partner' AND column_name = 'probe_hosted'", 'probe') == '1'
 
     # Two containers starting together create one database.
     start(tag + '-b', 'probe_two')
