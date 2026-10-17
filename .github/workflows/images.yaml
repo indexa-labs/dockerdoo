@@ -36,7 +36,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  IMAGE: ghcr.io/indexa-labs/dockerdoo
+  IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
   resolve_odoo_refs:
@@ -44,7 +44,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.refs.outputs.matrix }}
-      image: ${{ steps.refs.outputs.image }}
     steps:
       - name: Resolve the branch once for this run
         id: refs
@@ -62,7 +61,6 @@ jobs:
             {odoo_version:"20.0",odoo_ref:$ref,platform:"linux/arm64",runner:"ubuntu-24.04-arm",arch:"arm64"}
           ]}')"
           echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
 
   build_test_pull_request:
     name: Build and test without registry access
@@ -79,7 +77,6 @@ jobs:
       odoo_ref: ${{ matrix.odoo_ref }}
       platform: ${{ matrix.platform }}
       runner: ${{ matrix.runner }}
-      image: ${{ needs.resolve_odoo_refs.outputs.image }}
       stage_tag: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.odoo_version }}-${{ matrix.arch }}
       publish_stage: false
 
@@ -99,7 +96,6 @@ jobs:
       odoo_ref: ${{ matrix.odoo_ref }}
       platform: ${{ matrix.platform }}
       runner: ${{ matrix.runner }}
-      image: ${{ needs.resolve_odoo_refs.outputs.image }}
       stage_tag: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.odoo_version }}-${{ matrix.arch }}
       publish_stage: true
 
@@ -125,8 +121,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.10.0
 
-      # 20.0 follows the newest tested build. 20.0.YYYYMMDD is valid semver, so platforms
-      # that auto-update by semver move between dated builds of the same Odoo series.
+      # 20.0.YYYYMMDD is valid semver, so platforms that auto-update by semver follow dated builds.
       - name: Create the multi-platform manifest from the tested images
         id: manifest
         env:
@@ -136,12 +131,11 @@ jobs:
           day="$(date -u +%Y%m%d)"
           docker buildx imagetools create \
             --tag "${IMAGE}:20.0" \
-            --tag "${IMAGE}:20.0-${day}" \
             --tag "${IMAGE}:20.0.${day}" \
             "${IMAGE}:${STAGE_PREFIX}-amd64" "${IMAGE}:${STAGE_PREFIX}-arm64"
-          digest="$(docker buildx imagetools inspect "${IMAGE}:20.0-${day}" --format '{{json .Manifest}}' | jq -r .digest)"
+          digest="$(docker buildx imagetools inspect "${IMAGE}:20.0.${day}" --format '{{json .Manifest}}' | jq -r .digest)"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
-          echo "Published ${IMAGE}:20.0-${day}@${digest}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published ${IMAGE}:20.0.${day}@${digest}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2.3.0

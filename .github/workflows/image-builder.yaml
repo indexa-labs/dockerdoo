@@ -18,9 +18,6 @@ on:
       stage_tag:
         required: true
         type: string
-      image:
-        required: true
-        type: string
       publish_stage:
         required: false
         type: boolean
@@ -48,7 +45,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5.7.0
         with:
-          images: ${{ inputs.image }}
+          images: ghcr.io/${{ github.repository }}
           flavor: latest=false
           tags: type=raw,value=${{ inputs.stage_tag }}
           labels: |
@@ -76,7 +73,7 @@ jobs:
 
       - name: Run native runtime and Odoo tests
         env:
-          IMAGE: ${{ inputs.image }}:${{ inputs.stage_tag }}
+          IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.stage_tag }}
         run: >-
           python3 tests/test_runtime.py
           --image "$IMAGE"
@@ -85,7 +82,7 @@ jobs:
 
       - name: Run hosted-platform tests
         env:
-          IMAGE: ${{ inputs.image }}:${{ inputs.stage_tag }}
+          IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.stage_tag }}
         run: python3 tests/test_hosted.py --image "$IMAGE"
 
       - name: Upload runtime test logs after failure
@@ -96,7 +93,6 @@ jobs:
           path: |
             /tmp/dockerdoo-test-*
             !/tmp/dockerdoo-test-*/test.env
-            /tmp/dkhosted-logs-*
           if-no-files-found: ignore
           retention-days: 7
 
@@ -111,5 +107,5 @@ jobs:
       - name: Push tested platform images
         if: ${{ inputs.publish_stage }}
         env:
-          IMAGE: ${{ inputs.image }}:${{ inputs.stage_tag }}
+          IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.stage_tag }}
         run: docker push "$IMAGE"

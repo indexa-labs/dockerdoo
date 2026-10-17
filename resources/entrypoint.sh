@@ -7,7 +7,8 @@
 if [ "$(id -u)" = "0" ] && [ "${ODOO_RUN_AS_ROOT:-0}" != "1" ]; then
     for dir in "${ODOO_DATA_DIR}" "${ODOO_LOGS_DIR}"; do
         mkdir -p "${dir}"
-        find "${dir}" -xdev ! -user "${APP_UID}" -exec chown "${APP_UID}:${APP_GID}" {} +
+        # ponytail: the directory's owner marks the whole tree; chown -R only on first use.
+        [ "$(stat -c %u "${dir}")" = "${APP_UID}" ] || chown -R "${APP_UID}:${APP_GID}" "${dir}"
     done
     chown "${APP_UID}:${APP_GID}" /etc/odoo
     export HOME="${ODOO_BASEPATH}"
@@ -167,7 +168,6 @@ case "$1" in
             fi
             
         else
-            # Wait for PostgreSQL, create the application role, and create or upgrade the database.
             python3 /dockerdoo_init.py || exit $?
             unset DB_ADMIN_URL INIT_ADMIN_PASSWORD
             if [[ "$UPGRADE_ODOO" -eq "1" ]] ; then
