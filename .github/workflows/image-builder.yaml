@@ -71,30 +71,10 @@ jobs:
           cache-from: type=gha,scope=odoo-${{ inputs.odoo_version }}-${{ inputs.platform }}
           cache-to: type=gha,mode=max,scope=odoo-${{ inputs.odoo_version }}-${{ inputs.platform }}
 
-      - name: Run native runtime and Odoo tests
+      - name: Run hosted-platform and native Odoo tests
         env:
           IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.stage_tag }}
-        run: >-
-          python3 tests/test_runtime.py
-          --image "$IMAGE"
-          --odoo-version "${{ inputs.odoo_version }}"
-          --native-tests
-
-      - name: Run hosted-platform tests
-        env:
-          IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.stage_tag }}
-        run: python3 tests/test_hosted.py --image "$IMAGE"
-
-      - name: Upload runtime test logs after failure
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: runtime-logs-${{ inputs.odoo_version }}-${{ inputs.stage_tag }}
-          path: |
-            /tmp/dockerdoo-test-*
-            !/tmp/dockerdoo-test-*/test.env
-          if-no-files-found: ignore
-          retention-days: 7
+        run: python3 tests/test_hosted.py --image "$IMAGE" --native-tests
 
       - name: Log in to GitHub Container Registry
         if: ${{ inputs.publish_stage }}

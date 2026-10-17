@@ -11,7 +11,7 @@ import psycopg2
 from psycopg2 import sql
 
 env = os.environ
-dbname = env.get("DBNAME", "")
+dbname = env.get("PGDATABASE", "")
 
 
 def connect(dsn=None):
