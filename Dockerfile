@@ -151,13 +151,15 @@ RUN addgroup --system --gid ${APP_GID} ${ODOO_USER} \
     && adduser --system --uid ${APP_UID} --ingroup ${ODOO_USER} --home ${ODOO_BASEPATH} --disabled-login --shell /bin/bash ${ODOO_USER}
 
 # Odoo 20 reads ODOO_<OPTION> and PG* variables itself (see odoo/tools/config.py); these are the image's defaults.
+# Odoo listens on 127.0.0.1 unless told otherwise, which a container's port mapping cannot reach.
 ENV APP_UID=${APP_UID} \
     APP_GID=${APP_GID} \
     ODOO_BASEPATH=${ODOO_BASEPATH} \
     ODOO_EXTRA_ADDONS=/mnt/extra-addons \
     ODOO_RC=/etc/odoo/odoo.conf \
     ODOO_DATA_DIR=/var/lib/odoo/data \
-    ODOO_LIST_DB=False
+    ODOO_LIST_DB=False \
+    ODOO_HTTP_INTERFACE=0.0.0.0
 
 RUN mkdir -p ${ODOO_DATA_DIR} ${ODOO_EXTRA_ADDONS} /etc/odoo \
     && chown ${APP_UID}:${APP_GID} ${ODOO_DATA_DIR} ${ODOO_EXTRA_ADDONS} /etc/odoo

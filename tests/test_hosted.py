@@ -101,6 +101,8 @@ try:
         return json.loads(sh('docker', 'exec', '-i', first, 'curl', '-s', '-H', 'Content-Type: application/json',
                              '--data-binary', '@-', 'http://127.0.0.1:9000' + path, input=body))
     assert rpc('/web/session/authenticate', {'db': 'probe', 'login': 'admin', 'password': odoo_pw})['result']['uid']
+    # Platforms reach the server from outside the container.
+    assert '"pass"' in sh('docker', 'run', '--rm', '--network', net, '--entrypoint', 'curl', image, '-s', f'http://{first}:9000/web/health')
     assert 'error' in rpc('/web/database/list', {})
     assert sh('docker', 'exec', '-i', first, 'odoo', 'shell', '-d', 'probe', '--no-http',
               input="from odoo.tools import config; print('probe_option=' + config['probe_option'])").count('probe_option=42') == 1
