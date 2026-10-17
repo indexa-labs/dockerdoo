@@ -36,11 +36,11 @@ Before the server starts, the image does what hosted platforms need and Odoo doe
 | --- | --- |
 | `DB_WAIT_TIMEOUT` | Seconds to wait for PostgreSQL (default `60`) |
 | `DB_ADMIN_URL` | PostgreSQL administrator URL. Creates or updates `PGUSER` with `PGPASSWORD` as a role that may create databases but is not a superuser, because Odoo refuses to run as `postgres`. It is removed from the server's environment |
-| `AUTO_INIT` | `1` creates `PGDATABASE` when it is missing (`odoo db init`) and installs `INIT_MODULES` (`odoo module install`). Public sign-up is off: only invited users get portal accounts (`auth_signup.invitation_scope` is `b2b`). If setup fails, the database is dropped so the next start begins again |
+| `AUTO_INIT` | `1` creates `PGDATABASE` when it is missing (`odoo db init`) and installs `INIT_MODULES` (`odoo module install`). When `INIT_MODULES` install `auth_signup` (any accounting app does), public sign-up is off: only invited users get portal accounts (`auth_signup.invitation_scope` is `b2b`). If setup fails, the database is dropped so the next start begins again |
 | `INIT_MODULES` | Comma-separated modules to install in a new database |
 | `INIT_LANGUAGE`, `INIT_COUNTRY` | Language and country of a new database (default `en_US`) |
 | `INIT_ADMIN_LOGIN`, `INIT_ADMIN_PASSWORD` | Administrator of a new database. The password is set through Odoo, never on a command line |
-| `AUTO_UPGRADE` | `1` updates, at each start, the installed modules whose version on disk is newer than the database's (`odoo server -u <modules> --stop-after-init`), so new fields get their columns before Odoo reads any records. A failure stops the container before the server starts |
+| `AUTO_UPGRADE` | `1` updates, at each start, the installed modules whose version on disk is newer than the database's (`odoo server -u <modules> --stop-after-init`), so new fields get their columns before Odoo reads any records. Each start also refreshes the apps list, so add-ons new to the image appear in Apps. A failure stops the container before the server starts |
 
 Database creation and upgrades run under a PostgreSQL advisory lock, so containers started together change a database once. The container starts as root, takes ownership of `ODOO_DATA_DIR` if needed, and drops to the `odoo` user; set `ODOO_RUN_AS_ROOT=1` to keep root, or start it as uid 1000 on a volume it already owns.
 

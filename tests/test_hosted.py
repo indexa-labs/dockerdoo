@@ -38,8 +38,8 @@ def sql(query, db='postgres'):
     return sh('docker', 'exec', '-e', 'PGPASSWORD=' + admin_pw, pg, 'psql', '-XAt', '-h', '127.0.0.1', '-U', 'pgadmin', '-d', db, '-c', query)
 
 
-def module(version):
-    root = addons / 'probe' / 'probe_hosted'
+def module(version, name='probe_hosted'):
+    root = addons / 'probe' / name
     root.mkdir(parents=True, exist_ok=True)
     # A later version adds a stored field, which the upgrade must create before Odoo reads partners.
     (root / '__init__.py').write_text('' if version == '1.0' else 'from odoo import fields, models\n\n\n'
@@ -119,9 +119,15 @@ try:
     assert sql("SELECT latest_version FROM ir_module_module WHERE name = 'probe_hosted'", 'probe') == '20.0.1.1'
     assert sql("SELECT count(*) FROM information_schema.columns WHERE table_name = 'res_partner' AND column_name = 'probe_hosted'", 'probe') == '1'
 
+    # A start with no outdated module still lists add-ons new to the image.
+    module('1.0', 'probe_listed')
+    sh('docker', 'rm', '-f', first + 'n')
+    start(first + 'r', 'probe')
     # Two containers starting together create one database.
     start(tag + '-b', 'probe_two')
     start(tag + '-c', 'probe_two')
+    healthy(first + 'r')
+    assert sql("SELECT state FROM ir_module_module WHERE name = 'probe_listed'", 'probe') == 'uninstalled'
     healthy(tag + '-b')
     healthy(tag + '-c')
     assert created(tag + '-b') + created(tag + '-c') == 1
