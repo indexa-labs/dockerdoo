@@ -85,6 +85,9 @@ if dbname and "1" in (env.get("AUTO_INIT"), env.get("AUTO_UPGRADE")):
                             and parse_version(manifest.version) > parse_version(version)]
             if outdated:
                 odoo("server", "-d", dbname, "-u", ",".join(outdated), "--stop-after-init", "--no-http")
+            else:
+                # odoo server -u refreshes the apps list; without it, add-ons new to the image stay unlisted.
+                odoo("shell", "-d", dbname, "--no-http", stdin="env['ir.module.module'].update_list()\nenv.cr.commit()\n")
     except subprocess.CalledProcessError as error:
-        sys.exit(f"odoo {' '.join(error.cmd[1:3])} failed; the server does not start")
+        sys.exit(f"Preparing the database failed in odoo {error.cmd[1]}; the server does not start")
 conn.close()
