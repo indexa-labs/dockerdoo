@@ -56,7 +56,7 @@ def start(name, dbname, root=True):
        '-e', 'ODOO_DATA_DIR=/srv/odoo/data', '-e', 'PORT=9000', '-e', 'ODOO_EXTRA_OPTIONS=probe_option = 42',
        '-e', 'PGHOST=' + pg, '-e', 'PGUSER=odoo_app', '-e', 'PGPASSWORD=' + app_pw,
        '-e', f'DB_ADMIN_URL=postgresql://pgadmin:{admin_pw}@{pg}/postgres', '-e', 'PGDATABASE=' + dbname,
-       '-e', 'AUTO_INIT=1', '-e', 'AUTO_UPGRADE=1', '-e', 'INIT_MODULES=contacts,probe_hosted',
+       '-e', 'AUTO_INIT=1', '-e', 'AUTO_UPGRADE=1', '-e', 'INIT_MODULES=contacts,auth_signup,probe_hosted',
        '-e', 'INIT_ADMIN_PASSWORD=' + odoo_pw, image)
     names.append(name)
 
@@ -96,7 +96,8 @@ try:
     assert subprocess.run(['docker', 'exec', first, 'which', 'sudo']).returncode != 0
     assert 'DB_ADMIN_URL' not in sh('docker', 'exec', '--privileged', '-u', '0', first, 'cat', '/proc/1/environ')
     assert sql("SELECT rolsuper, rolcreatedb FROM pg_roles WHERE rolname = 'odoo_app'") == 'f|t'
-    assert sql("SELECT count(*) FROM ir_module_module WHERE state = 'installed' AND name IN ('contacts', 'probe_hosted')", 'probe') == '2'
+    assert sql("SELECT count(*) FROM ir_module_module WHERE state = 'installed' AND name IN ('contacts', 'auth_signup', 'probe_hosted')", 'probe') == '3'
+    assert sql("SELECT value FROM ir_config_parameter WHERE key = 'auth_signup.invitation_scope'", 'probe') == 'b2b'
 
     def rpc(path, params):
         body = json.dumps({'jsonrpc': '2.0', 'method': 'call', 'params': params})
