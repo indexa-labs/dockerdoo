@@ -3,8 +3,6 @@
 .gitignore
 LICENSE
 README.md
-Changelog.md
-Makefile
-src/*
-.devcontainer/*
-.yaml
+tests
+*.yml
+.env*

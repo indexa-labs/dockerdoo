@@ -8,23 +8,17 @@ on:
     branches: [main]
     paths:
       - .dockerignore
-      - .env.example
       - .github/workflows/**
       - Dockerfile
-      - config/**
       - custom/**
-      - docker-compose.yml
       - resources/**
       - tests/**
   pull_request:
     paths:
       - .dockerignore
-      - .env.example
       - .github/workflows/**
       - Dockerfile
-      - config/**
       - custom/**
-      - docker-compose.yml
       - resources/**
       - tests/**
 

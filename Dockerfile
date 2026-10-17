@@ -133,12 +133,6 @@ RUN git init /opt/odoo \
     rlpycairo \
     'websocket-client~=0.56' \
     packaging \
-    psycogreen \
-    click-odoo-contrib \
-    git-aggregator \
-    inotify \
-    python-json-logger \
-    redis \
     phonenumbers \
     && apt-get autopurge -yqq \
     && rm -rf /var/lib/apt/lists/* /tmp/*
@@ -148,190 +142,39 @@ RUN pip3 install --editable /opt/odoo --config-settings editable_mode=compat \
 
 FROM base AS production
 
-# PIP auto-install requirements.txt (change value to "1" to auto-install)
-ENV PIP_AUTO_INSTALL=${PIP_AUTO_INSTALL:-"0"}
-
-# Run tests for all the modules in the custom addons
-ENV RUN_TESTS=${RUN_TESTS:-"0"}
-
-# Run tests for all installed modules
-ENV WITHOUT_TEST_TAGS=${WITHOUT_TEST_TAGS:-"0"}
-
-# Upgrade all databases visible to this Odoo instance
-ENV UPGRADE_ODOO=${UPGRADE_ODOO:-"0"}
-
-ARG ODOO_BASEPATH
-ENV ODOO_BASEPATH=${ODOO_BASEPATH}
-
-# Create app user
 ARG ODOO_USER
-ENV ODOO_USER=${ODOO_USER}
-
 ARG APP_UID
-ENV APP_UID=${APP_UID}
-
 ARG APP_GID
-ENV APP_GID=${APP_GID}
+ARG ODOO_BASEPATH
 
 RUN addgroup --system --gid ${APP_GID} ${ODOO_USER} \
     && adduser --system --uid ${APP_UID} --ingroup ${ODOO_USER} --home ${ODOO_BASEPATH} --disabled-login --shell /bin/bash ${ODOO_USER}
 
-# Odoo Configuration file variables and defaults
-ARG ADMIN_PASSWORD
-ARG PGHOST
-ARG PGUSER
-ARG PGPORT
-ARG PGPASSWORD
-ARG DB_TEMPLATE
-ARG HTTP_INTERFACE
-ARG HTTP_PORT
-ARG ODOO_HEALTHCHECK_PATH
-ARG DBFILTER
-ARG DBNAME
-ARG SERVER_WIDE_MODULES
+# Odoo 20 reads ODOO_<OPTION> and PG* variables itself (see odoo/tools/config.py); these are the image's defaults.
+ENV APP_UID=${APP_UID} \
+    APP_GID=${APP_GID} \
+    ODOO_BASEPATH=${ODOO_BASEPATH} \
+    ODOO_EXTRA_ADDONS=/mnt/extra-addons \
+    ODOO_RC=/etc/odoo/odoo.conf \
+    ODOO_DATA_DIR=/var/lib/odoo/data \
+    ODOO_LIST_DB=False
 
-ENV \
-    ADMIN_PASSWORD=${ADMIN_PASSWORD} \
-    ODOO_DATA_DIR=${ODOO_DATA_DIR:-/var/lib/odoo/data} \
-    DB_PORT_5432_TCP_ADDR=${PGHOST:-db} \
-    DB_MAXCONN=${DB_MAXCONN:-64} \
-    DB_ENV_POSTGRES_PASSWORD=${PGPASSWORD:-odoo} \
-    DB_PORT_5432_TCP_PORT=${PGPORT:-5432} \
-    DB_SSLMODE=${DB_SSLMODE:-prefer} \
-    DB_TEMPLATE=${DB_TEMPLATE:-template1} \
-    DB_ENV_POSTGRES_USER=${PGUSER:-odoo} \
-    DBFILTER=${DBFILTER} \
-    DBNAME=${DBNAME} \
-    HTTP_INTERFACE=${HTTP_INTERFACE:-0.0.0.0} \
-    HTTP_PORT=${HTTP_PORT} \
-    ODOO_HEALTHCHECK_PATH=${ODOO_HEALTHCHECK_PATH:-/web/health} \
-    LIMIT_REQUEST=${LIMIT_REQUEST:-8196} \
-    LIMIT_MEMORY_HARD=${LIMIT_MEMORY_HARD:-2684354560} \
-    LIMIT_MEMORY_SOFT=${LIMIT_MEMORY_SOFT:-2147483648} \
-    LIMIT_TIME_CPU=${LIMIT_TIME_CPU:-60} \
-    LIMIT_TIME_REAL=${LIMIT_TIME_REAL:-120} \
-    LIMIT_TIME_REAL_CRON=${LIMIT_TIME_REAL_CRON:-0} \
-    LIST_DB=${LIST_DB:-False} \
-    LOG_DB=${LOG_DB:-False} \
-    LOG_DB_LEVEL=${LOG_DB_LEVEL:-warning} \
-    LOGFILE=${LOGFILE:-None} \
-    LOG_HANDLER=${LOG_HANDLER:-:INFO} \
-    LOG_LEVEL=${LOG_LEVEL:-info} \
-    MAX_CRON_THREADS=${MAX_CRON_THREADS:-2} \
-    PROXY_MODE=${PROXY_MODE:-False} \
-    SERVER_WIDE_MODULES=${SERVER_WIDE_MODULES:-base,web} \
-    SMTP_PASSWORD=${SMTP_PASSWORD:-False} \
-    SMTP_PORT=${SMTP_PORT:-25} \
-    SMTP_SERVER=${SMTP_SERVER:-localhost} \
-    SMTP_SSL=${SMTP_SSL:-False} \
-    SMTP_USER=${SMTP_USER:-False} \
-    TEST_ENABLE=${TEST_ENABLE:-False} \
-    UNACCENT=${UNACCENT:-False} \
-    WITHOUT_DEMO=${WITHOUT_DEMO:-False} \
-    WORKERS=${WORKERS:-0}
+RUN mkdir -p ${ODOO_DATA_DIR} ${ODOO_EXTRA_ADDONS} /etc/odoo \
+    && chown ${APP_UID}:${APP_GID} ${ODOO_DATA_DIR} ${ODOO_EXTRA_ADDONS} /etc/odoo
 
-# camptocamp variables (to be used on cloud deployments)
-# Sessions in Redis
-ARG ODOO_SESSION_REDIS
-ARG ODOO_SESSION_REDIS_HOST
-ARG ODOO_SESSION_REDIS_PASSWORD
-ARG ODOO_SESSION_REDIS_PREFIX
-# JSON logging
-ARG ODOO_LOGGING_JSON
-# Attachments in the Object Storage S3
-ARG AWS_HOST
-ARG AWS_REGION
-ARG AWS_ACCESS_KEY_ID
-ARG AWS_SECRET_ACCESS_KEY
-ARG AWS_BUCKETNAME
-# Metrics (Statsd/Prometheus for Grafana)
-ARG ODOO_STATSD
-ARG STATSD_CUSTOMER
-ARG STATSD_ENVIRONMENT
-ARG STATSD_HOST
-ARG STATSD_PORT
-# Automatic Configuration Startup checks
-ARG ODOO_CLOUD_PLATFORM_UNSAFE
-ARG RUNNING_ENV
-
-ENV \
-    ODOO_SESSION_REDIS=${ODOO_SESSION_REDIS:-0} \
-    ODOO_SESSION_REDIS_HOST=${ODOO_SESSION_REDIS_HOST} \
-    ODOO_SESSION_REDIS_PASSWORD=${ODOO_SESSION_REDIS_PASSWORD} \
-    ODOO_SESSION_REDIS_PREFIX=${ODOO_SESSION_REDIS_PREFIX} \
-    ODOO_LOGGING_JSON=${ODOO_LOGGING_JSON:-0} \
-    AWS_HOST=${AWS_HOST} \
-    AWS_REGION=${AWS_REGION} \
-    AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
-    AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
-    AWS_BUCKETNAME=${AWS_BUCKETNAME} \
-    ODOO_STATSD=${ODOO_STATSD} \
-    STATSD_CUSTOMER=${STATSD_CUSTOMER} \
-    STATSD_ENVIRONMENT=${STATSD_ENVIRONMENT} \
-    STATSD_HOST=${STATSD_HOST} \
-    STATSD_PORT=${STATSD_PORT} \
-    RUNNING_ENV=${RUNNING_ENV}
-
-# Define all needed directories
-ENV ODOO_RC=${ODOO_RC:-/etc/odoo/odoo.conf}
-ENV ODOO_DATA_DIR=${ODOO_DATA_DIR:-/var/lib/odoo/data}
-ENV ODOO_LOGS_DIR=${ODOO_LOGS_DIR:-/var/lib/odoo/logs}
-ENV ODOO_EXTRA_ADDONS=${ODOO_EXTRA_ADDONS:-/mnt/extra-addons}
-ENV ODOO_ADDONS_BASEPATH=${ODOO_BASEPATH}/addons
-ENV ODOO_CMD=${ODOO_BASEPATH}/odoo-bin
-
-RUN mkdir -p ${ODOO_DATA_DIR} ${ODOO_LOGS_DIR} ${ODOO_EXTRA_ADDONS} /etc/odoo/
-
-# Own folders    //-- docker-compose creates named volumes owned by root:root. Issue: https://github.com/docker/compose/issues/3270
-RUN chown -R ${APP_UID}:${APP_GID} ${ODOO_DATA_DIR} ${ODOO_LOGS_DIR} ${ODOO_EXTRA_ADDONS} ${ODOO_BASEPATH} /etc/odoo
-
-VOLUME ["${ODOO_DATA_DIR}", "${ODOO_LOGS_DIR}", "${ODOO_EXTRA_ADDONS}"]
-
-ARG EXTRA_ADDONS_PATHS
-ENV EXTRA_ADDONS_PATHS=${EXTRA_ADDONS_PATHS}
-
-ARG EXTRA_MODULES
-ENV EXTRA_MODULES=${EXTRA_MODULES}
+VOLUME ["/var/lib/odoo/data"]
 
 COPY --link --chown=${APP_UID}:${APP_GID} --from=builder /usr/local /usr/local
 COPY --link --chown=${APP_UID}:${APP_GID} --from=builder /opt/odoo ${ODOO_BASEPATH}
+COPY --link --chmod=0755 ./resources/entrypoint.sh ./resources/getaddons.py ./resources/dockerdoo_init.py /
+# Add-ons to bake into the image, if any.
+COPY --link --chown=${APP_UID}:${APP_GID} ./custom ${ODOO_EXTRA_ADDONS}
 
-# Copy from build env
-COPY --link --chown=${APP_UID}:${APP_GID} ./resources/entrypoint.sh /
-COPY --link --chown=${APP_UID}:${APP_GID} ./resources/getaddons.py /
-COPY --link --chown=${APP_UID}:${APP_GID} ./resources/dockerdoo_init.py /
+EXPOSE 8069 8072
 
-# This is needed to fully build with modules and python requirements
-# Copy custom modules from the custom folder, if any.
-ARG HOST_CUSTOM_ADDONS
-ENV HOST_CUSTOM_ADDONS=${HOST_CUSTOM_ADDONS:-./custom}
-COPY --link --chown=${APP_UID}:${APP_GID} ${HOST_CUSTOM_ADDONS} ${ODOO_EXTRA_ADDONS}
+HEALTHCHECK CMD curl --fail --silent "http://127.0.0.1:${ODOO_HTTP_PORT:-${PORT:-8069}}/web/health" || exit 1
 
-RUN chmod 0755 /entrypoint.sh /dockerdoo_init.py
-
-EXPOSE 8069 8071 8072
-
-# Docker healthcheck command
-# HTTP_PORT, then the platform's PORT, then Odoo's default; the entrypoint resolves the same order.
-HEALTHCHECK CMD curl --fail --silent --show-error "http://127.0.0.1:${HTTP_PORT:-${PORT:-8069}}${ODOO_HEALTHCHECK_PATH}" || exit 1
-
+# Starts as root so it can take ownership of a root-owned volume; the entrypoint then drops to the odoo user.
 ENTRYPOINT ["/entrypoint.sh"]
 
-USER ${ODOO_USER}
-
-CMD ["/opt/odoo/odoo-bin"]
-
-# Developer tools and passwordless sudo stay out of the published production image.
-FROM production AS development
-
-USER root
-
-# hadolint ignore=DL3008
-RUN apt-get -qq update \
-    && apt-get -qq install -y --no-install-recommends htop nano ssh sudo vim \
-    && rm -rf /var/lib/apt/lists/* \
-    && echo "${ODOO_USER} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${ODOO_USER} \
-    && chmod 0440 /etc/sudoers.d/${ODOO_USER} \
-    && pip3 install --prefix=/usr/local --no-cache-dir astor black pylint-odoo flake8 pydevd-odoo wdb
-
-USER ${ODOO_USER}
+CMD ["odoo"]

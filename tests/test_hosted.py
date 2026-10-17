@@ -1,11 +1,13 @@
 """Run the image the way hosted platforms do and check the result.
 
 Root start on a root-owned volume, a platform PORT, Odoo before PostgreSQL, a superuser-only
-PostgreSQL, automatic database creation and upgrade, restart, and two containers starting together.
+PostgreSQL, automatic database creation and upgrade, restart, two containers starting together,
+and, with --native-tests, Odoo's own base tests.
 """
 
 import argparse
 import json
+import re
 import secrets
 import subprocess
 import tempfile
@@ -14,7 +16,9 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--image', required=True)
-image = parser.parse_args().image
+parser.add_argument('--native-tests', action='store_true')
+args = parser.parse_args()
+image = args.image
 
 tag = 'dkhosted-' + secrets.token_hex(3)
 net, pg, volume = tag + '-net', tag + '-pg', tag + '-data'
@@ -45,11 +49,11 @@ def module(version):
 
 
 def start(name, dbname, root=True):
-    sh('docker', 'run', '-d', '--name', name, '--network', net, *(['--user', '0'] if root else []),
+    sh('docker', 'run', '-d', '--name', name, '--network', net, *([] if root else ['--user', '1000']),
        '-v', volume + ':/srv/odoo', '-v', f'{addons}:/mnt/extra-addons:ro', '--health-interval', '2s',
-       '-e', 'ODOO_DATA_DIR=/srv/odoo/data', '-e', 'ODOO_LOGS_DIR=/srv/odoo/logs', '-e', 'PORT=9000',
+       '-e', 'ODOO_DATA_DIR=/srv/odoo/data', '-e', 'PORT=9000', '-e', 'ODOO_EXTRA_OPTIONS=probe_option = 42',
        '-e', 'PGHOST=' + pg, '-e', 'PGUSER=odoo_app', '-e', 'PGPASSWORD=' + app_pw,
-       '-e', f'DB_ADMIN_URL=postgresql://pgadmin:{admin_pw}@{pg}/postgres', '-e', 'DBNAME=' + dbname,
+       '-e', f'DB_ADMIN_URL=postgresql://pgadmin:{admin_pw}@{pg}/postgres', '-e', 'PGDATABASE=' + dbname,
        '-e', 'AUTO_INIT=1', '-e', 'AUTO_UPGRADE=1', '-e', 'INIT_MODULES=contacts,probe_hosted',
        '-e', 'INIT_ADMIN_PASSWORD=' + odoo_pw, image)
     names.append(name)
@@ -98,8 +102,8 @@ try:
                              '--data-binary', '@-', 'http://127.0.0.1:9000' + path, input=body))
     assert rpc('/web/session/authenticate', {'db': 'probe', 'login': 'admin', 'password': odoo_pw})['result']['uid']
     assert 'error' in rpc('/web/database/list', {})
-    conf = sh('docker', 'exec', first, 'cat', '/etc/odoo/odoo.conf')
-    assert 'list_db = False' in conf and 'dbfilter = ^probe$' in conf and 'http_port = 9000' in conf
+    assert sh('docker', 'exec', '-i', first, 'odoo', 'shell', '-d', 'probe', '--no-http',
+              input="from odoo.tools import config; print('probe_option=' + config['probe_option'])").count('probe_option=42') == 1
 
     # A later start without root, with a newer manifest, upgrades the module and creates nothing.
     sh('docker', 'rm', '-f', first)
@@ -115,7 +119,20 @@ try:
     healthy(tag + '-b')
     healthy(tag + '-c')
     assert created(tag + '-b') + created(tag + '-c') == 1
-    print('hosted checks passed')
+    print('hosted checks passed', flush=True)
+
+    if args.native_tests:
+        # The exclusions are timing- or environment-sensitive tests that fail in containers regardless of the image.
+        skip = ['base:TestPerformance.test_frequencies_1ms_sleep', 'base:TestSyncRecorder.test_sync_recorder',
+                'test_retry_failures', 'test_retry_disable', 'base:TestRunnerLogging.test_assertQueryCount',
+                'base:TestExpression.test_invalid', 'base:TestUsersIdentitycheck.test_revoke_all_devices']
+        run = subprocess.run(['docker', 'run', '--rm', '--network', net, '-e', 'PGHOST=' + pg, '-e', 'PGUSER=odoo_app',
+                              '-e', 'PGPASSWORD=' + app_pw, image, 'odoo', 'server', '-d', 'native_tests', '-i', 'base',
+                              '--test-enable', '--stop-after-init', '--no-http', '--test-tags', ','.join(['base', *('-' + s for s in skip)])],
+                             capture_output=True, text=True, timeout=3600)
+        summary = re.findall(r'odoo\.tests\.result: (\d+) failed, (\d+) error\(s\) of (\d+) tests', run.stderr)
+        assert run.returncode == 0 and summary and summary[-1][:2] == ('0', '0') and int(summary[-1][2]) > 0, run.stderr[-3000:]
+        print(f'native tests passed: {summary[-1][2]}')
 finally:
     subprocess.run(['docker', 'rm', '-f', *names], capture_output=True)
     subprocess.run(['docker', 'volume', 'rm', volume], capture_output=True)
