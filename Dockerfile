@@ -228,14 +228,7 @@ ENV \
     TEST_ENABLE=${TEST_ENABLE:-False} \
     UNACCENT=${UNACCENT:-False} \
     WITHOUT_DEMO=${WITHOUT_DEMO:-False} \
-    WORKERS=${WORKERS:-0} \
-    DB_WAIT_TIMEOUT=${DB_WAIT_TIMEOUT:-60} \
-    AUTO_INIT=${AUTO_INIT:-0} \
-    AUTO_UPGRADE=${AUTO_UPGRADE:-0} \
-    AUTO_UPGRADE_SNAPSHOT=${AUTO_UPGRADE_SNAPSHOT:-0} \
-    INIT_MODULES=${INIT_MODULES:-base} \
-    INIT_LANGUAGE=${INIT_LANGUAGE:-en_US} \
-    INIT_ADMIN_LOGIN=${INIT_ADMIN_LOGIN:-admin}
+    WORKERS=${WORKERS:-0}
 
 # camptocamp variables (to be used on cloud deployments)
 # Sessions in Redis
