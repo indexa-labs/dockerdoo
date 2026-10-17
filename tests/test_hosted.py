@@ -126,7 +126,8 @@ try:
         skip = ['base:TestPerformance.test_frequencies_1ms_sleep', 'base:TestSyncRecorder.test_sync_recorder',
                 'test_retry_failures', 'test_retry_disable', 'base:TestRunnerLogging.test_assertQueryCount',
                 'base:TestExpression.test_invalid', 'base:TestUsersIdentitycheck.test_revoke_all_devices']
-        run = subprocess.run(['docker', 'run', '--rm', '--network', net, '-e', 'PGHOST=' + pg, '-e', 'PGUSER=odoo_app',
+        # The image's health probe would show up as a stray process in Odoo's test teardown checks.
+        run = subprocess.run(['docker', 'run', '--rm', '--no-healthcheck', '--network', net, '-e', 'PGHOST=' + pg, '-e', 'PGUSER=odoo_app',
                               '-e', 'PGPASSWORD=' + app_pw, image, 'odoo', 'server', '-d', 'native_tests', '-i', 'base',
                               '--test-enable', '--stop-after-init', '--no-http', '--test-tags', ','.join(['base', *('-' + s for s in skip)])],
                              capture_output=True, text=True, timeout=3600)
