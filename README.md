@@ -40,7 +40,7 @@ Before the server starts, the image does what hosted platforms need and Odoo doe
 | `INIT_MODULES` | Comma-separated modules to install in a new database |
 | `INIT_LANGUAGE`, `INIT_COUNTRY` | Language and country of a new database (default `en_US`) |
 | `INIT_ADMIN_LOGIN`, `INIT_ADMIN_PASSWORD` | Administrator of a new database. The password is set through Odoo, never on a command line |
-| `AUTO_UPGRADE` | `1` runs `odoo module upgrade --outdated all` on an existing database at each start. A failure stops the container before the server starts |
+| `AUTO_UPGRADE` | `1` updates, at each start, the installed modules whose version on disk is newer than the database's (`odoo server -u <modules> --stop-after-init`), so new fields get their columns before Odoo reads any records. A failure stops the container before the server starts |
 
 Database creation and upgrades run under a PostgreSQL advisory lock, so containers started together change a database once. The container starts as root, takes ownership of `ODOO_DATA_DIR` if needed, and drops to the `odoo` user; set `ODOO_RUN_AS_ROOT=1` to keep root, or start it as uid 1000 on a volume it already owns.
 

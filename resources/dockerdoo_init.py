@@ -8,6 +8,8 @@ import sys
 import time
 
 import psycopg2
+from odoo.modules.module import Manifest
+from odoo.tools import config, parse_version
 from psycopg2 import sql
 
 env = os.environ
@@ -71,7 +73,16 @@ if dbname and "1" in (env.get("AUTO_INIT"), env.get("AUTO_UPGRADE")):
                 odoo("db", "drop", dbname)
                 raise
         elif env.get("AUTO_UPGRADE") == "1" and exists:
-            odoo("module", "upgrade", "-d", dbname, "--outdated", "all")
+            # odoo module upgrade reads records before it updates the schema, so a release that adds a
+            # stored field fails there; odoo server -u updates the schema first.
+            config.parse_config([], setup_logging=False)
+            with psycopg2.connect(dbname=dbname) as db, db.cursor() as dbcur:
+                dbcur.execute("SELECT name, latest_version FROM ir_module_module WHERE state = 'installed'")
+                outdated = [name for name, version in dbcur.fetchall()
+                            if (manifest := Manifest.for_addon(name, display_warning=False))
+                            and parse_version(manifest.version) > parse_version(version)]
+            if outdated:
+                odoo("server", "-d", dbname, "-u", ",".join(outdated), "--stop-after-init", "--no-http")
     except subprocess.CalledProcessError as error:
         sys.exit(f"odoo {' '.join(error.cmd[1:3])} failed; the server does not start")
 conn.close()
