@@ -36,7 +36,7 @@ Before the server starts, the image does what hosted platforms need and Odoo doe
 | --- | --- |
 | `DB_WAIT_TIMEOUT` | Seconds to wait for PostgreSQL (default `60`) |
 | `DB_ADMIN_URL` | PostgreSQL administrator URL. Creates or updates `PGUSER` with `PGPASSWORD` as a role that may create databases but is not a superuser, because Odoo refuses to run as `postgres`. It is removed from the server's environment |
-| `AUTO_INIT` | `1` creates `PGDATABASE` when it is missing (`odoo db init`) and installs `INIT_MODULES` (`odoo module install`). If that fails, the database is dropped so the next start begins again |
+| `AUTO_INIT` | `1` creates `PGDATABASE` when it is missing (`odoo db init`) and installs `INIT_MODULES` (`odoo module install`). Public sign-up is off: only invited users get portal accounts (`auth_signup.invitation_scope` is `b2b`). If setup fails, the database is dropped so the next start begins again |
 | `INIT_MODULES` | Comma-separated modules to install in a new database |
 | `INIT_LANGUAGE`, `INIT_COUNTRY` | Language and country of a new database (default `en_US`) |
 | `INIT_ADMIN_LOGIN`, `INIT_ADMIN_PASSWORD` | Administrator of a new database. The password is set through Odoo, never on a command line |
