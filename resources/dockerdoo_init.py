@@ -74,8 +74,6 @@ if dbname and "1" in (env.get("AUTO_INIT"), env.get("AUTO_UPGRADE")):
                     modules = [m.strip() for m in env.get("INIT_MODULES", "").split(",") if m.strip()]
                     if modules:
                         odoo("module", "install", "-d", dbname, *modules)
-                    # Odoo's default lets anyone create a portal account; new databases admit invited users only.
-                    setup += "env['ir.config_parameter'].set_str('auth_signup.invitation_scope', 'b2b')\n"
                 odoo("shell", "-d", dbname, "--no-http", stdin=setup + "env.cr.commit()\n")
             except subprocess.CalledProcessError:
                 # Start over on the next boot rather than serve a half-installed database.
