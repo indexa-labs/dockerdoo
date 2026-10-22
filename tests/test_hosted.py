@@ -110,6 +110,9 @@ try:
     assert sh('docker', 'exec', '-i', first, 'odoo', 'shell', '-d', 'probe', '--no-http',
               input="from odoo.tools import config; print('probe_option=' + config['probe_option'])").count('probe_option=42') == 1
 
+    # pg_dump must be as new as the server, or Odoo's dump and backup fail.
+    sh('docker', 'exec', first, 'odoo', 'db', 'dump', 'probe', '/tmp/probe.zip')
+
     # A later start without root, with a newer manifest, upgrades the module and creates nothing.
     sh('docker', 'rm', '-f', first)
     module('1.1')
