@@ -18,6 +18,11 @@ on:
       stage_tag:
         required: true
         type: string
+      target:
+        description: Dockerfile stage to build, production or development
+        required: false
+        type: string
+        default: production
       publish_stage:
         required: false
         type: boolean
@@ -30,7 +35,7 @@ on:
 
 jobs:
   build-test:
-    name: Odoo ${{ inputs.odoo_version }} on ${{ inputs.platform }}
+    name: Odoo ${{ inputs.odoo_version }}${{ inputs.target != 'production' && format(' {0}', inputs.target) || '' }} on ${{ inputs.platform }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
     steps:
@@ -60,7 +65,7 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          target: production
+          target: ${{ inputs.target }}
           platforms: ${{ inputs.platform }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -71,13 +76,24 @@ jobs:
             OS_VARIANT=bookworm
           load: true
           no-cache: ${{ inputs.no_cache }}
-          cache-from: type=gha,scope=odoo-${{ inputs.odoo_version }}-${{ inputs.platform }}
-          cache-to: type=gha,mode=max,scope=odoo-${{ inputs.odoo_version }}-${{ inputs.platform }}
+          # The development build reads the production cache, so it rebuilds only its own stage.
+          cache-from: |
+            type=gha,scope=odoo-${{ inputs.odoo_version }}-${{ inputs.platform }}
+            type=gha,scope=odoo-${{ inputs.odoo_version }}-${{ inputs.platform }}${{ inputs.target != 'production' && format('-{0}', inputs.target) || '' }}
+          cache-to: type=gha,mode=max,scope=odoo-${{ inputs.odoo_version }}-${{ inputs.platform }}${{ inputs.target != 'production' && format('-{0}', inputs.target) || '' }}
 
       - name: Run hosted-platform and native Odoo tests
+        if: ${{ inputs.target == 'production' }}
         env:
           IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.stage_tag }}
         run: python3 tests/test_hosted.py --image "$IMAGE" --native-tests
+
+      # The development stage adds tools on top of the tested runtime, so it runs the hosted checks, which also confirm the tools.
+      - name: Run hosted-platform tests and check the development tools
+        if: ${{ inputs.target == 'development' }}
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.stage_tag }}
+        run: python3 tests/test_hosted.py --image "$IMAGE" --development
 
       - name: Log in to GitHub Container Registry
         if: ${{ inputs.publish_stage }}

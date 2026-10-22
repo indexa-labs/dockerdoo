@@ -129,7 +129,7 @@ RUN PYTHONPATH="$(python3 -c "import sysconfig; print(sysconfig.get_path('pureli
     pip3 install --prefix=/install --no-cache-dir --editable /opt/odoo --config-settings editable_mode=compat \
     && rm -rf /opt/odoo/.git /var/lib/apt/lists/* /tmp/*
 
-FROM base AS production
+FROM base AS runtime
 
 ARG ODOO_USER
 ARG APP_UID
@@ -173,3 +173,41 @@ HEALTHCHECK CMD curl --fail --silent "http://127.0.0.1:${ODOO_HTTP_PORT:-${PORT:
 ENTRYPOINT ["/entrypoint.sh"]
 
 CMD ["odoo"]
+
+# The runtime plus what working on add-ons inside the container needs: compilers and headers for add-on
+# requirements, git, npm, ffmpeg for browser-test screencasts, watchdog for --dev=reload, and debugpy.
+FROM runtime AS development
+
+ARG ODOO_USER
+
+# libpq-dev must match the libpq of the PGDG postgresql-client in base, as in the builder.
+RUN . /etc/os-release \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt/ ${VERSION_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get -qq update \
+    && apt-get -qq install -y --no-install-recommends \
+    build-essential \
+    ffmpeg \
+    git \
+    htop \
+    less \
+    libffi-dev \
+    libjpeg62-turbo-dev \
+    libldap2-dev \
+    libpq-dev \
+    libsasl2-dev \
+    libssl-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    nano \
+    npm \
+    openssh-client \
+    sudo \
+    zlib1g-dev \
+    && echo "${ODOO_USER} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${ODOO_USER} \
+    && chmod 0440 /etc/sudoers.d/${ODOO_USER} \
+    && pip3 install --no-cache-dir debugpy watchdog \
+    && rm -f /etc/apt/sources.list.d/pgdg.list \
+    && rm -rf /var/lib/apt/lists/* /tmp/*
+
+# Last, so a build without --target produces the production image.
+FROM runtime AS production

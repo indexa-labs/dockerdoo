@@ -17,6 +17,7 @@ from pathlib import Path
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--image', required=True)
 parser.add_argument('--native-tests', action='store_true')
+parser.add_argument('--development', action='store_true', help="check the development image's tools instead of their absence")
 args = parser.parse_args()
 image = args.image
 
@@ -93,7 +94,14 @@ try:
 
     assert sh('docker', 'exec', first, 'awk', '/^Uid:/{print $2}', '/proc/1/status') == '1000'
     assert sh('docker', 'exec', first, 'stat', '-c', '%u', '/srv/odoo/data/filestore/probe') == '1000'
-    assert subprocess.run(['docker', 'exec', first, 'which', 'sudo']).returncode != 0
+    if args.development:
+        # The development image adds the tools production leaves out, and the odoo user may use sudo.
+        for tool in ('git', 'npm', 'ffmpeg', 'gcc'):
+            sh('docker', 'exec', first, 'which', tool)
+        sh('docker', 'exec', first, 'python3', '-c', 'import debugpy, watchdog')
+        sh('docker', 'exec', '-u', 'odoo', first, 'sudo', '-n', 'true')
+    else:
+        assert subprocess.run(['docker', 'exec', first, 'which', 'sudo']).returncode != 0
     # Odoo's thread pool and memory limits are fitted to the container's memory, unless the environment sets them.
     def derived(*docker_args, **env):
         out = sh('docker', 'run', '--rm', *docker_args, *(arg for k, v in env.items() for arg in ('-e', f'{k}={v}')), image, 'env')

@@ -10,7 +10,9 @@ An Odoo 20 Community image for hosted platforms such as Railway, Render, or Kube
 gh attestation verify oci://ghcr.io/indexa-labs/dockerdoo:20.0 --owner indexa-labs
 ```
 
-GitHub Actions builds the current Odoo `20.0` branch weekly and on every change, for `linux/amd64` and `linux/arm64`. It publishes only after `tests/test_hosted.py` and Odoo's own base tests pass on both. The image installs Odoo's pinned Python requirements and has no `sudo` or developer tools: no `git`, no `npm`, no `ffmpeg` (only Odoo's browser-test screencasts use it), and no `-dev` packages. It is 2.8 GB unpacked and 0.54 GB compressed, and the newest `postgresql-client` is installed so that `odoo db dump` works against current servers.
+GitHub Actions builds the current Odoo `20.0` branch weekly and on every change, for `linux/amd64` and `linux/arm64`. It publishes only after `tests/test_hosted.py` and Odoo's own base tests pass on both. The image installs Odoo's pinned Python requirements and has no `sudo` or developer tools. It is 2.8 GB unpacked and 0.54 GB compressed, and the newest `postgresql-client` is installed so that `odoo db dump` works against current servers.
+
+`20.0-dev` and `20.0.YYYYMMDD-dev` are the matching development builds, from the Dockerfile's `development` target. They add what working on add-ons inside the container needs: `git`, `npm`, `ffmpeg` for Odoo's browser-test screencasts, compilers and `-dev` headers so `pip install` can build add-on requirements, `watchdog` for `--dev=reload`, `debugpy`, and passwordless `sudo` for the odoo user. Use them for development only.
 
 ## Configuration
 
@@ -69,6 +71,8 @@ ENV AUTO_INIT=1 INIT_MODULES=my_module
 ## Local use
 
 Copy `.env.example` to `.env`, set the passwords, and run `docker compose up`. Odoo answers on `http://127.0.0.1:8069`.
+
+For development, set `target: development` under `build` in `docker-compose.yml`, or use `image: ghcr.io/indexa-labs/dockerdoo:20.0-dev`.
 
 To test a local build the way CI does:
 

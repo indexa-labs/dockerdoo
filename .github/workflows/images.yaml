@@ -51,8 +51,10 @@ jobs:
           fi
           echo "Resolved Odoo 20.0 to ${ref}" >&2
           matrix="$(jq -cn --arg ref "$ref" '{include:[
-            {odoo_version:"20.0",odoo_ref:$ref,platform:"linux/amd64",runner:"ubuntu-latest",arch:"amd64"},
-            {odoo_version:"20.0",odoo_ref:$ref,platform:"linux/arm64",runner:"ubuntu-24.04-arm",arch:"arm64"}
+            {odoo_version:"20.0",odoo_ref:$ref,platform:"linux/amd64",runner:"ubuntu-latest",arch:"amd64",target:"production",suffix:""},
+            {odoo_version:"20.0",odoo_ref:$ref,platform:"linux/arm64",runner:"ubuntu-24.04-arm",arch:"arm64",target:"production",suffix:""},
+            {odoo_version:"20.0",odoo_ref:$ref,platform:"linux/amd64",runner:"ubuntu-latest",arch:"amd64",target:"development",suffix:"-dev"},
+            {odoo_version:"20.0",odoo_ref:$ref,platform:"linux/arm64",runner:"ubuntu-24.04-arm",arch:"arm64",target:"development",suffix:"-dev"}
           ]}')"
           echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
 
@@ -71,7 +73,8 @@ jobs:
       odoo_ref: ${{ matrix.odoo_ref }}
       platform: ${{ matrix.platform }}
       runner: ${{ matrix.runner }}
-      stage_tag: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.odoo_version }}-${{ matrix.arch }}
+      stage_tag: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.odoo_version }}-${{ matrix.arch }}${{ matrix.suffix }}
+      target: ${{ matrix.target }}
       publish_stage: false
 
   build_test_main:
@@ -90,7 +93,8 @@ jobs:
       odoo_ref: ${{ matrix.odoo_ref }}
       platform: ${{ matrix.platform }}
       runner: ${{ matrix.runner }}
-      stage_tag: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.odoo_version }}-${{ matrix.arch }}
+      stage_tag: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.odoo_version }}-${{ matrix.arch }}${{ matrix.suffix }}
+      target: ${{ matrix.target }}
       publish_stage: true
 
   publish_tested_manifest:
@@ -130,10 +134,24 @@ jobs:
           digest="$(docker buildx imagetools inspect "${IMAGE}:20.0.${day}" --format '{{json .Manifest}}' | jq -r .digest)"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
           echo "Published ${IMAGE}:20.0.${day}@${digest}" >> "$GITHUB_STEP_SUMMARY"
+          docker buildx imagetools create \
+            --tag "${IMAGE}:20.0-dev" \
+            --tag "${IMAGE}:20.0.${day}-dev" \
+            "${IMAGE}:${STAGE_PREFIX}-amd64-dev" "${IMAGE}:${STAGE_PREFIX}-arm64-dev"
+          dev_digest="$(docker buildx imagetools inspect "${IMAGE}:20.0.${day}-dev" --format '{{json .Manifest}}' | jq -r .digest)"
+          echo "dev_digest=${dev_digest}" >> "$GITHUB_OUTPUT"
+          echo "Published ${IMAGE}:20.0.${day}-dev@${dev_digest}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2.3.0
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.manifest.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest build provenance of the development image
+        uses: actions/attest-build-provenance@v2.3.0
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.manifest.outputs.dev_digest }}
           push-to-registry: true
