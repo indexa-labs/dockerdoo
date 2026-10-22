@@ -94,6 +94,20 @@ try:
     assert sh('docker', 'exec', first, 'awk', '/^Uid:/{print $2}', '/proc/1/status') == '1000'
     assert sh('docker', 'exec', first, 'stat', '-c', '%u', '/srv/odoo/data/filestore/probe') == '1000'
     assert subprocess.run(['docker', 'exec', first, 'which', 'sudo']).returncode != 0
+    # Odoo's thread pool and memory limits are fitted to the container's memory, unless the environment sets them.
+    def derived(*docker_args, **env):
+        out = sh('docker', 'run', '--rm', *docker_args, *(arg for k, v in env.items() for arg in ('-e', f'{k}={v}')), image, 'env')
+        return dict(line.split('=', 1) for line in out.splitlines() if line.startswith(('ODOO_MAX_HTTP', 'ODOO_LIMIT_MEMORY', 'ODOO_WORKERS')))
+    small = derived('--memory=512m')
+    assert small['ODOO_MAX_HTTP_THREADS'] == '32', small
+    # Odoo measures virtual memory, which includes each thread's 8 MiB stack.
+    assert int(small['ODOO_LIMIT_MEMORY_SOFT']) == int(512 * 2**20 * 0.70) + 32 * 8 * 2**20 and int(small['ODOO_LIMIT_MEMORY_HARD']) > int(small['ODOO_LIMIT_MEMORY_SOFT'])
+    assert derived('--memory=2g')['ODOO_MAX_HTTP_THREADS'] == '128'
+    explicit = derived('--memory=512m', ODOO_MAX_HTTP_THREADS='7', ODOO_LIMIT_MEMORY_HARD='123456789')
+    assert explicit['ODOO_MAX_HTTP_THREADS'] == '7' and explicit['ODOO_LIMIT_MEMORY_HARD'] == '123456789'
+    assert explicit['ODOO_LIMIT_MEMORY_SOFT'] == str(int(512 * 2**20 * 0.70) + 7 * 8 * 2**20)
+    # Worker processes have limits of their own.
+    assert 'ODOO_LIMIT_MEMORY_SOFT' not in derived('--memory=512m', ODOO_WORKERS='2')
     # The slim image keeps the shared libraries and tools Odoo's Python packages and reports load.
     assert sh('docker', 'exec', first, 'bash', '-c', "find /usr/local/lib/python3.12/site-packages -name '*.so*' -not -path '*.libs/*' -exec ldd {} + | grep 'not found'; true") == ''
     sh('docker', 'exec', first, 'python3', '-c', 'import ldap, cairo, rlPyCairo, magic, psycopg2, lxml, PIL, reportlab.graphics.renderPM')

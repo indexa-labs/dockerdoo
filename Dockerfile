@@ -161,7 +161,7 @@ COPY --link --chown=${APP_UID}:${APP_GID} --from=builder /opt/odoo ${ODOO_BASEPA
 # Compiled once here, so each new container starts without compiling Odoo's code.
 RUN python3 -m compileall -q -j 0 "$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" ${ODOO_BASEPATH}/odoo ${ODOO_BASEPATH}/addons
 
-COPY --link --chmod=0755 ./resources/entrypoint.sh ./resources/getaddons.py ./resources/dockerdoo_init.py /
+COPY --link --chmod=0755 ./resources/entrypoint.sh ./resources/getaddons.py ./resources/dockerdoo_init.py ./resources/containerlimits.py /
 # Add-ons to bake into the image, if any.
 COPY --link --chown=${APP_UID}:${APP_GID} ./custom ${ODOO_EXTRA_ADDONS}
 

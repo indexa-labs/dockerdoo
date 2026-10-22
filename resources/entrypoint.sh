@@ -17,6 +17,9 @@ if [ -n "$PGDATABASE" ]; then export ODOO_DBFILTER="${ODOO_DBFILTER:-^${PGDATABA
 export ODOO_ADMIN_PASSWD="${ODOO_ADMIN_PASSWD:-$(python3 -c 'import secrets; print(secrets.token_hex(24))')}"
 extra="$(python3 /getaddons.py "$ODOO_EXTRA_ADDONS")"
 export ODOO_ADDONS_PATH="${ODOO_ADDONS_PATH:-${extra:+$extra,}$ODOO_BASEPATH/addons}"
+# Odoo's thread pool and memory limits assume a dedicated host; fit them to the container (see the README).
+limits="$(python3 /containerlimits.py)"
+eval "$limits"
 # Add-on options have no ODOO_<OPTION> variable; they are read from the configuration file.
 if [ -n "$ODOO_EXTRA_OPTIONS" ]; then printf '[options]\n%s\n' "$ODOO_EXTRA_OPTIONS" > "$ODOO_RC"; fi
 

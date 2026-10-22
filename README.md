@@ -21,12 +21,16 @@ Odoo 20 reads every server option from `ODOO_<OPTION>` (for example `ODOO_WORKER
 | `ODOO_HTTP_PORT` | The platform's `PORT`, else `8069` |
 | `ODOO_DBFILTER` | `^$PGDATABASE$` when `PGDATABASE` is set |
 | `ODOO_ADMIN_PASSWD` | A random master password per container |
+| `ODOO_MAX_HTTP_THREADS` | One thread per 16 MiB of the container's memory, from 32 to 256 |
+| `ODOO_LIMIT_MEMORY_SOFT`, `ODOO_LIMIT_MEMORY_HARD` | 70 % and 90 % of the container's memory, plus 8 MiB for each HTTP thread |
 | `ODOO_LIST_DB` | `False` |
 | `ODOO_HTTP_INTERFACE` | `0.0.0.0` (Odoo's own default is `127.0.0.1`) |
 | `ODOO_ADDONS_PATH` | Add-on folders found under `/mnt/extra-addons`, then Odoo's add-ons |
 | `ODOO_DATA_DIR` | `/var/lib/odoo/data`; mount the volume here |
 
 Add-on options that Odoo has no variable for go in `ODOO_EXTRA_OPTIONS`, one `key = value` per line; the image writes them to the configuration file.
+
+The last three rows fit Odoo to its container. In threaded mode (`ODOO_WORKERS` unset or `0`), each open websocket holds one HTTP thread, and Odoo sizes its pool at twice the host's CPUs plus one, whatever the container may use. Odoo's memory limits default to 2048 and 2560 MiB and count virtual memory, which includes the 8 MiB stack of every thread. The image reads the container's memory limit (the machine's memory when there is none, as on virtual machines) and derives all three from it. A variable you set always wins. With `ODOO_WORKERS` above zero the memory limits apply to each worker, so the image leaves them to you, and on a machine of 16 GiB or more it leaves all three to Odoo's own defaults.
 
 ## Start step
 
