@@ -158,10 +158,15 @@ VOLUME ["/var/lib/odoo/data"]
 COPY --link --chown=${APP_UID}:${APP_GID} --from=builder /install /usr/local
 COPY --link --chown=${APP_UID}:${APP_GID} --from=builder /opt/odoo ${ODOO_BASEPATH}
 
+# dockerdoo_logging.json names this module, so Odoo imports it by name; it goes where Python looks for packages.
+RUN --mount=type=bind,source=resources/dockerdoo_logging.py,target=/tmp/dockerdoo_logging.py \
+    install -m 0644 /tmp/dockerdoo_logging.py "$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+
 # Compiled once here, so each new container starts without compiling Odoo's code.
 RUN python3 -m compileall -q -j 0 "$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" ${ODOO_BASEPATH}/odoo ${ODOO_BASEPATH}/addons
 
 COPY --link --chmod=0755 ./resources/entrypoint.sh ./resources/getaddons.py ./resources/dockerdoo_init.py ./resources/containerlimits.py /
+COPY --link --chmod=0644 ./resources/dockerdoo_logging.json /
 # Add-ons to bake into the image, if any.
 COPY --link --chown=${APP_UID}:${APP_GID} ./custom ${ODOO_EXTRA_ADDONS}
 

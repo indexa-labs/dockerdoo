@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "formatters": {
+    "json": {"()": "dockerdoo_logging.JsonFormatter"}
+  },
+  "handlers": {
+    "stdout": {"()": "dockerdoo_logging.stdout_handler", "formatter": "json"}
+  },
+  "root": {"handlers": ["stdout"]}
+}
