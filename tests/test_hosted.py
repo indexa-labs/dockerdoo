@@ -1,8 +1,8 @@
 """Run the image the way hosted platforms do and check the result.
 
 Root start on a root-owned volume, a platform PORT, Odoo before PostgreSQL, a superuser-only
-PostgreSQL, automatic database creation and upgrade, restart, two containers starting together,
-and, with --native-tests, Odoo's own base tests.
+PostgreSQL, automatic database creation and upgrade, a database loaded from a dump, restart, two
+containers starting together, and, with --native-tests, Odoo's own base tests.
 """
 
 import argparse
@@ -51,14 +51,15 @@ def module(version, name='probe_hosted'):
         path.chmod(0o755)
 
 
-def start(name, dbname, root=True):
+def start(name, dbname, root=True, **env):
+    env = {'INIT_ADMIN_PASSWORD': odoo_pw, **env}
     sh('docker', 'run', '-d', '--name', name, '--network', net, *([] if root else ['--user', '1000']),
        '-v', volume + ':/srv/odoo', '-v', f'{addons}:/mnt/extra-addons:ro', '--health-interval', '2s',
        '-e', 'ODOO_DATA_DIR=/srv/odoo/data', '-e', 'PORT=9000', '-e', 'ODOO_EXTRA_OPTIONS=probe_option = 42',
        '-e', 'PGHOST=' + pg, '-e', 'PGUSER=odoo_app', '-e', 'PGPASSWORD=' + app_pw,
        '-e', f'DB_ADMIN_URL=postgresql://pgadmin:{admin_pw}@{pg}/postgres', '-e', 'PGDATABASE=' + dbname,
        '-e', 'AUTO_INIT=1', '-e', 'AUTO_UPGRADE=1', '-e', 'INIT_MODULES=contacts,auth_signup,probe_hosted',
-       '-e', 'INIT_ADMIN_PASSWORD=' + odoo_pw, image)
+       *(arg for k, v in env.items() for arg in ('-e', f'{k}={v}')), image)
     names.append(name)
 
 
@@ -73,8 +74,8 @@ def healthy(name):
     raise RuntimeError(f'{name} is not healthy: ' + subprocess.run(['docker', 'logs', name], capture_output=True, text=True).stderr[-3000:])
 
 
-def created(name):
-    return subprocess.run(['docker', 'logs', name], capture_output=True, text=True).stderr.count('Create database')
+def created(name, log='Create database'):
+    return subprocess.run(['docker', 'logs', name], capture_output=True, text=True).stderr.count(log)
 
 
 try:
@@ -127,9 +128,9 @@ try:
     assert sql("SELECT count(*) FROM ir_module_module WHERE state = 'installed' AND name IN ('contacts', 'auth_signup', 'probe_hosted')", 'probe') == '3'
     assert sql("SELECT value FROM ir_config_parameter WHERE key = 'auth_signup.invitation_scope'", 'probe') == 'b2b'
 
-    def rpc(path, params):
+    def rpc(path, params, name=first):
         body = json.dumps({'jsonrpc': '2.0', 'method': 'call', 'params': params})
-        return json.loads(sh('docker', 'exec', '-i', first, 'curl', '-s', '-H', 'Content-Type: application/json',
+        return json.loads(sh('docker', 'exec', '-i', name, 'curl', '-s', '-H', 'Content-Type: application/json',
                              '--data-binary', '@-', 'http://127.0.0.1:9000' + path, input=body))
     assert rpc('/web/session/authenticate', {'db': 'probe', 'login': 'admin', 'password': odoo_pw})['result']['uid']
     # Platforms reach the server from outside the container.
@@ -139,7 +140,21 @@ try:
               input="from odoo.tools import config; print('probe_option=' + config['probe_option'])").count('probe_option=42') == 1
 
     # pg_dump must be as new as the server, or Odoo's dump and backup fail.
-    sh('docker', 'exec', first, 'odoo', 'db', 'dump', 'probe', '/tmp/probe.zip')
+    sh('docker', 'exec', first, 'odoo', 'db', 'dump', 'probe', '/srv/odoo/data/probe.zip')
+
+    # A database loaded from the dump takes its administrator from the environment, and a later start keeps it.
+    loaded = tag + '-d'
+    owner = {'INIT_DUMP': '/srv/odoo/data/probe.zip', 'INIT_ADMIN_LOGIN': 'owner', 'INIT_ADMIN_PASSWORD': secrets.token_hex(12)}
+    start(loaded, 'probe_dump', **owner)
+    healthy(loaded)
+    assert created(loaded, 'RESTORING DB') == 1
+    credentials = {'db': 'probe_dump', 'password': owner['INIT_ADMIN_PASSWORD']}
+    assert rpc('/web/session/authenticate', {**credentials, 'login': 'owner'}, loaded)['result']['uid']
+    assert 'error' in rpc('/web/session/authenticate', {**credentials, 'login': 'admin'}, loaded)
+    sh('docker', 'rm', '-f', loaded)
+    start(loaded + 'r', 'probe_dump', **owner)
+    healthy(loaded + 'r')
+    assert created(loaded + 'r', 'RESTORING DB') == 0
 
     # A later start without root, with a newer manifest, upgrades the module and creates nothing.
     sh('docker', 'rm', '-f', first)

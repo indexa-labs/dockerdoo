@@ -57,19 +57,26 @@ if dbname and "1" in (env.get("AUTO_INIT"), env.get("AUTO_UPGRADE")):
         if env.get("AUTO_INIT") == "1" and not exists:
             if not env.get("INIT_ADMIN_PASSWORD"):
                 sys.exit("AUTO_INIT needs INIT_ADMIN_PASSWORD")
-            # odoo db init only takes the password as an argument, so it gets a throwaway one
-            # and the shell below sets the real one from the environment.
-            init = ["db", "init", dbname, "--language", env.get("INIT_LANGUAGE", "en_US"),
-                    "--username", env.get("INIT_ADMIN_LOGIN", "admin"), "--password", secrets.token_hex(24)]
-            odoo(*init, *(["--country", env["INIT_COUNTRY"]] if env.get("INIT_COUNTRY") else []))
+            dump = env.get("INIT_DUMP")
+            if not dump:
+                # odoo db init only takes the password as an argument, so it gets a throwaway one
+                # and the shell below sets the real one from the environment.
+                init = ["db", "init", dbname, "--language", env.get("INIT_LANGUAGE", "en_US"),
+                        "--username", env.get("INIT_ADMIN_LOGIN", "admin"), "--password", secrets.token_hex(24)]
+                odoo(*init, *(["--country", env["INIT_COUNTRY"]] if env.get("INIT_COUNTRY") else []))
+            setup = "import os\nenv.ref('base.user_admin').password = os.environ['INIT_ADMIN_PASSWORD']\n"
             try:
-                modules = [m.strip() for m in env.get("INIT_MODULES", "").split(",") if m.strip()]
-                if modules:
-                    odoo("module", "install", "-d", dbname, *modules)
-                # Odoo's default lets anyone create a portal account; new databases admit invited users only.
-                odoo("shell", "-d", dbname, "--no-http", stdin="import os\n"
-                     "env.ref('base.user_admin').password = os.environ['INIT_ADMIN_PASSWORD']\n"
-                     "env['ir.config_parameter'].set_str('auth_signup.invitation_scope', 'b2b')\nenv.cr.commit()\n")
+                if dump:
+                    odoo("db", "load", dbname, dump)
+                    if env.get("INIT_ADMIN_LOGIN"):
+                        setup += "env.ref('base.user_admin').login = os.environ['INIT_ADMIN_LOGIN']\n"
+                else:
+                    modules = [m.strip() for m in env.get("INIT_MODULES", "").split(",") if m.strip()]
+                    if modules:
+                        odoo("module", "install", "-d", dbname, *modules)
+                    # Odoo's default lets anyone create a portal account; new databases admit invited users only.
+                    setup += "env['ir.config_parameter'].set_str('auth_signup.invitation_scope', 'b2b')\n"
+                odoo("shell", "-d", dbname, "--no-http", stdin=setup + "env.cr.commit()\n")
             except subprocess.CalledProcessError:
                 # Start over on the next boot rather than serve a half-installed database.
                 odoo("db", "drop", dbname)
