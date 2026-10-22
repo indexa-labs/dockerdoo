@@ -11,6 +11,7 @@ import psycopg2
 from odoo.modules.module import Manifest
 from odoo.tools import config, parse_version
 from psycopg2 import sql
+from psycopg2.extensions import make_dsn
 
 env = os.environ
 dbname = env.get("PGDATABASE", "")
@@ -33,6 +34,21 @@ def odoo(*args, stdin=None):
     subprocess.run(["odoo", *args], input=stdin, text=True, check=True)
 
 
+def enable_pgvector():
+    # Odoo's AI apps create the extension when they install, which a role that is not a superuser cannot do.
+    if not env.get("DB_ADMIN_URL"):
+        return
+    try:
+        admin = connect(make_dsn(env["DB_ADMIN_URL"], dbname=dbname))
+        with admin.cursor() as cur:
+            cur.execute("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'")
+            if cur.fetchone():
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        admin.close()
+    except psycopg2.Error as error:
+        print(f"pgvector is available but could not be enabled: {error}", file=sys.stderr)
+
+
 if env.get("DB_ADMIN_URL"):
     # Odoo refuses to run as postgres, and platforms often hand out only a superuser.
     role, password = env.get("PGUSER", ""), env.get("PGPASSWORD", "")
@@ -47,13 +63,15 @@ if env.get("DB_ADMIN_URL"):
     admin.close()
 
 conn = connect()
-if dbname and "1" in (env.get("AUTO_INIT"), env.get("AUTO_UPGRADE")):
+if dbname and (env.get("DB_ADMIN_URL") or "1" in (env.get("AUTO_INIT"), env.get("AUTO_UPGRADE"))):
     cur = conn.cursor()
     # Containers started together change the database once.
     cur.execute("SELECT pg_advisory_lock(727383001)")
     cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
     exists = cur.fetchone()
     try:
+        if exists:
+            enable_pgvector()
         if env.get("AUTO_INIT") == "1" and not exists:
             if not env.get("INIT_ADMIN_PASSWORD"):
                 sys.exit("AUTO_INIT needs INIT_ADMIN_PASSWORD")
@@ -64,10 +82,12 @@ if dbname and "1" in (env.get("AUTO_INIT"), env.get("AUTO_UPGRADE")):
                 init = ["db", "init", dbname, "--language", env.get("INIT_LANGUAGE", "en_US"),
                         "--username", env.get("INIT_ADMIN_LOGIN", "admin"), "--password", secrets.token_hex(24)]
                 odoo(*init, *(["--country", env["INIT_COUNTRY"]] if env.get("INIT_COUNTRY") else []))
+                enable_pgvector()  # Before the modules install, because an AI app's install hook needs it.
             setup = "import os\nenv.ref('base.user_admin').password = os.environ['INIT_ADMIN_PASSWORD']\n"
             try:
                 if dump:
                     odoo("db", "load", dbname, dump)
+                    enable_pgvector()
                     if env.get("INIT_ADMIN_LOGIN"):
                         setup += "env.ref('base.user_admin').login = os.environ['INIT_ADMIN_LOGIN']\n"
                 else:

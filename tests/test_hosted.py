@@ -84,7 +84,7 @@ try:
         sh('docker', 'network', 'create', '--subnet', f'10.{secrets.randbelow(200) + 40}.{secrets.randbelow(250)}.0/24', net)
     sh('docker', 'volume', 'create', volume)
     module('1.0')
-    sh('docker', 'create', '--name', pg, '--network', net, '-e', 'POSTGRES_USER=pgadmin', '-e', 'POSTGRES_PASSWORD=' + admin_pw, 'postgres:16')
+    sh('docker', 'create', '--name', pg, '--network', net, '-e', 'POSTGRES_USER=pgadmin', '-e', 'POSTGRES_PASSWORD=' + admin_pw, 'pgvector/pgvector:pg16')
     names.append(pg)
     first = tag + '-a'
     start(first, 'probe')
@@ -124,6 +124,8 @@ try:
         sh('docker', 'exec', first, tool, '--version')
     assert sh('docker', 'exec', first, 'bash', '-c', "echo '<h1>hola</h1>' | wkhtmltopdf -q - - | head -c 4") == '%PDF'
     assert 'DB_ADMIN_URL' not in sh('docker', 'exec', '--privileged', '-u', '0', first, 'cat', '/proc/1/environ')
+    # The administrator enables pgvector, which Odoo's AI apps need and the application role cannot create.
+    assert sql("SELECT count(*) FROM pg_extension WHERE extname = 'vector'", 'probe') == '1'
     assert sql("SELECT rolsuper, rolcreatedb FROM pg_roles WHERE rolname = 'odoo_app'") == 'f|t'
     assert sql("SELECT count(*) FROM ir_module_module WHERE state = 'installed' AND name IN ('contacts', 'probe_hosted')", 'probe') == '2'
 
