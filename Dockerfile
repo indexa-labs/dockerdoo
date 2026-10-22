@@ -116,10 +116,17 @@ RUN git init /opt/odoo \
     && git -C /opt/odoo checkout --detach FETCH_HEAD
 
 # Install into /install, so the image copies only what pip adds and not the Python it already has.
+# The pinned packages are what Odoo's apps import beyond requirements.txt, at the versions tested with them.
+# The second pip cannot see what the first installed, and google-auth and pdfminer.six would pull a cryptography
+# that pyOpenSSL 24.1.0 cannot load, so Odoo's pins constrain it.
 RUN pip3 install --prefix=/install --no-cache-dir --upgrade --requirement /opt/odoo/requirements.txt \
-    && pip3 -qq install --prefix=/install --no-cache-dir --upgrade \
+    && pip3 -qq install --prefix=/install --no-cache-dir --upgrade --constraint /opt/odoo/requirements.txt \
     rlpycairo \
     'websocket-client~=0.56' \
+    google-auth==2.62.0 \
+    odfpy==1.4.1 \
+    pdfminer.six==20260107 \
+    PyJWT==2.15.1 \
     packaging \
     phonenumbers \
     markdown2 \
