@@ -119,7 +119,7 @@ try:
     assert 'ODOO_LIMIT_MEMORY_SOFT' not in derived('--memory=512m', ODOO_WORKERS='2')
     # The slim image keeps the shared libraries and tools Odoo's Python packages and reports load.
     assert sh('docker', 'exec', first, 'bash', '-c', "find /usr/local/lib/python3.12/site-packages -name '*.so*' -not -path '*.libs/*' -exec ldd {} + | grep 'not found'; true") == ''
-    sh('docker', 'exec', first, 'python3', '-c', 'import ldap, cairo, rlPyCairo, magic, psycopg2, lxml, PIL, reportlab.graphics.renderPM')
+    sh('docker', 'exec', first, 'python3', '-c', 'import ldap, cairo, rlPyCairo, magic, psycopg2, lxml, PIL, reportlab.graphics.renderPM, markdown2')
     for tool in ('rtlcss', 'lessc', 'wkhtmltopdf', 'pg_dump', 'psql'):
         sh('docker', 'exec', first, tool, '--version')
     assert sh('docker', 'exec', first, 'bash', '-c', "echo '<h1>hola</h1>' | wkhtmltopdf -q - - | head -c 4") == '%PDF'
