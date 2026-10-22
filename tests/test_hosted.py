@@ -17,6 +17,7 @@ from pathlib import Path
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--image', required=True)
 parser.add_argument('--native-tests', action='store_true')
+parser.add_argument('--development', action='store_true', help="check the development image's tools instead of their absence")
 args = parser.parse_args()
 image = args.image
 
@@ -93,7 +94,34 @@ try:
 
     assert sh('docker', 'exec', first, 'awk', '/^Uid:/{print $2}', '/proc/1/status') == '1000'
     assert sh('docker', 'exec', first, 'stat', '-c', '%u', '/srv/odoo/data/filestore/probe') == '1000'
-    assert subprocess.run(['docker', 'exec', first, 'which', 'sudo']).returncode != 0
+    if args.development:
+        # The development image adds the tools production leaves out, and the odoo user may use sudo.
+        for tool in ('git', 'npm', 'ffmpeg', 'gcc'):
+            sh('docker', 'exec', first, 'which', tool)
+        sh('docker', 'exec', first, 'python3', '-c', 'import debugpy, watchdog')
+        sh('docker', 'exec', '-u', 'odoo', first, 'sudo', '-n', 'true')
+    else:
+        assert subprocess.run(['docker', 'exec', first, 'which', 'sudo']).returncode != 0
+    # Odoo's thread pool and memory limits are fitted to the container's memory, unless the environment sets them.
+    def derived(*docker_args, **env):
+        out = sh('docker', 'run', '--rm', *docker_args, *(arg for k, v in env.items() for arg in ('-e', f'{k}={v}')), image, 'env')
+        return dict(line.split('=', 1) for line in out.splitlines() if line.startswith(('ODOO_MAX_HTTP', 'ODOO_LIMIT_MEMORY', 'ODOO_WORKERS')))
+    small = derived('--memory=512m')
+    assert small['ODOO_MAX_HTTP_THREADS'] == '32', small
+    # Odoo measures virtual memory, which includes each thread's 8 MiB stack.
+    assert int(small['ODOO_LIMIT_MEMORY_SOFT']) == int(512 * 2**20 * 0.70) + 32 * 8 * 2**20 and int(small['ODOO_LIMIT_MEMORY_HARD']) > int(small['ODOO_LIMIT_MEMORY_SOFT'])
+    assert derived('--memory=2g')['ODOO_MAX_HTTP_THREADS'] == '128'
+    explicit = derived('--memory=512m', ODOO_MAX_HTTP_THREADS='7', ODOO_LIMIT_MEMORY_HARD='123456789')
+    assert explicit['ODOO_MAX_HTTP_THREADS'] == '7' and explicit['ODOO_LIMIT_MEMORY_HARD'] == '123456789'
+    assert explicit['ODOO_LIMIT_MEMORY_SOFT'] == str(int(512 * 2**20 * 0.70) + 7 * 8 * 2**20)
+    # Worker processes have limits of their own.
+    assert 'ODOO_LIMIT_MEMORY_SOFT' not in derived('--memory=512m', ODOO_WORKERS='2')
+    # The slim image keeps the shared libraries and tools Odoo's Python packages and reports load.
+    assert sh('docker', 'exec', first, 'bash', '-c', "find /usr/local/lib/python3.12/site-packages -name '*.so*' -not -path '*.libs/*' -exec ldd {} + | grep 'not found'; true") == ''
+    sh('docker', 'exec', first, 'python3', '-c', 'import ldap, cairo, rlPyCairo, magic, psycopg2, lxml, PIL, reportlab.graphics.renderPM')
+    for tool in ('rtlcss', 'lessc', 'wkhtmltopdf', 'pg_dump', 'psql'):
+        sh('docker', 'exec', first, tool, '--version')
+    assert sh('docker', 'exec', first, 'bash', '-c', "echo '<h1>hola</h1>' | wkhtmltopdf -q - - | head -c 4") == '%PDF'
     assert 'DB_ADMIN_URL' not in sh('docker', 'exec', '--privileged', '-u', '0', first, 'cat', '/proc/1/environ')
     assert sql("SELECT rolsuper, rolcreatedb FROM pg_roles WHERE rolname = 'odoo_app'") == 'f|t'
     assert sql("SELECT count(*) FROM ir_module_module WHERE state = 'installed' AND name IN ('contacts', 'auth_signup', 'probe_hosted')", 'probe') == '3'
@@ -109,6 +137,9 @@ try:
     assert 'error' in rpc('/web/database/list', {})
     assert sh('docker', 'exec', '-i', first, 'odoo', 'shell', '-d', 'probe', '--no-http',
               input="from odoo.tools import config; print('probe_option=' + config['probe_option'])").count('probe_option=42') == 1
+
+    # pg_dump must be as new as the server, or Odoo's dump and backup fail.
+    sh('docker', 'exec', first, 'odoo', 'db', 'dump', 'probe', '/tmp/probe.zip')
 
     # A later start without root, with a newer manifest, upgrades the module and creates nothing.
     sh('docker', 'rm', '-f', first)

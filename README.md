@@ -10,7 +10,9 @@ An Odoo 20 Community image for hosted platforms such as Railway, Render, or Kube
 gh attestation verify oci://ghcr.io/indexa-labs/dockerdoo:20.0 --owner indexa-labs
 ```
 
-GitHub Actions builds the current Odoo `20.0` branch weekly and on every change, for `linux/amd64` and `linux/arm64`. It publishes only after `tests/test_hosted.py` and Odoo's own base tests pass on both. The image installs Odoo's pinned Python requirements and has no `sudo` or developer tools.
+GitHub Actions builds the current Odoo `20.0` branch weekly and on every change, for `linux/amd64` and `linux/arm64`. It publishes only after `tests/test_hosted.py` and Odoo's own base tests pass on both. The image installs Odoo's pinned Python requirements and has no `sudo` or developer tools. It is 2.8 GB unpacked and 0.54 GB compressed, and the newest `postgresql-client` is installed so that `odoo db dump` works against current servers.
+
+`20.0-dev` and `20.0.YYYYMMDD-dev` are the matching development builds, from the Dockerfile's `development` target. They add what working on add-ons inside the container needs: `git`, `npm`, `ffmpeg` for Odoo's browser-test screencasts, compilers and `-dev` headers so `pip install` can build add-on requirements, `watchdog` for `--dev=reload`, `debugpy`, and passwordless `sudo` for the odoo user. Use them for development only.
 
 ## Configuration
 
@@ -21,12 +23,16 @@ Odoo 20 reads every server option from `ODOO_<OPTION>` (for example `ODOO_WORKER
 | `ODOO_HTTP_PORT` | The platform's `PORT`, else `8069` |
 | `ODOO_DBFILTER` | `^$PGDATABASE$` when `PGDATABASE` is set |
 | `ODOO_ADMIN_PASSWD` | A random master password per container |
+| `ODOO_MAX_HTTP_THREADS` | One thread per 16 MiB of the container's memory, from 32 to 256 |
+| `ODOO_LIMIT_MEMORY_SOFT`, `ODOO_LIMIT_MEMORY_HARD` | 70 % and 90 % of the container's memory, plus 8 MiB for each HTTP thread |
 | `ODOO_LIST_DB` | `False` |
 | `ODOO_HTTP_INTERFACE` | `0.0.0.0` (Odoo's own default is `127.0.0.1`) |
 | `ODOO_ADDONS_PATH` | Add-on folders found under `/mnt/extra-addons`, then Odoo's add-ons |
 | `ODOO_DATA_DIR` | `/var/lib/odoo/data`; mount the volume here |
 
 Add-on options that Odoo has no variable for go in `ODOO_EXTRA_OPTIONS`, one `key = value` per line; the image writes them to the configuration file.
+
+The last three rows fit Odoo to its container. In threaded mode (`ODOO_WORKERS` unset or `0`), each open websocket holds one HTTP thread, and Odoo sizes its pool at twice the host's CPUs plus one, whatever the container may use. Odoo's memory limits default to 2048 and 2560 MiB and count virtual memory, which includes the 8 MiB stack of every thread. The image reads the container's memory limit (the machine's memory when there is none, as on virtual machines) and derives all three from it. A variable you set always wins. With `ODOO_WORKERS` above zero the memory limits apply to each worker, so the image leaves them to you, and on a machine of 16 GiB or more it leaves all three to Odoo's own defaults.
 
 ## Start step
 
@@ -46,6 +52,10 @@ Database creation and upgrades run under a PostgreSQL advisory lock, so containe
 
 Odoo 20 serves websockets on a separate port when `ODOO_WORKERS` is above zero. A platform that routes one port per service needs `ODOO_WORKERS=0` or a reverse proxy in front of both ports.
 
+## Behind a proxy
+
+With `ODOO_PROXY_MODE=True`, Odoo 20 trusts `X-Forwarded-For` and `X-Forwarded-Proto` only on a request that also carries `X-Forwarded-Host` (`odoo/http/router.py` and `odoo/http/server.py`). Railway, nginx, and Caddy send it. Fly.io and AWS load balancers do not, and behind them Odoo sees plain `http` and the proxy's address: redirects use `http`, and the login cooldown counts every user as one client. The image does not work around this, because Odoo's maintainers keep the check on purpose: it shows that the proxy forces the header instead of passing a client's (odoo/odoo#63277, #70117). Where the platform does not send it, put a proxy that sets `X-Forwarded-Host` to the `Host` it received in front of Odoo. The right fix is in Odoo: trust the client address and scheme whenever proxy mode is on, and keep trusting the host only when the header is present.
+
 ## Add-ons
 
 Add-ons in `./custom` are copied into the image at build time, and folders mounted under `/mnt/extra-addons` are found at start. To ship your own add-ons and Python dependencies, build on a pinned digest:
@@ -61,6 +71,8 @@ ENV AUTO_INIT=1 INIT_MODULES=my_module
 ## Local use
 
 Copy `.env.example` to `.env`, set the passwords, and run `docker compose up`. Odoo answers on `http://127.0.0.1:8069`.
+
+For development, set `target: development` under `build` in `docker-compose.yml`, or use `image: ghcr.io/indexa-labs/dockerdoo:20.0-dev`.
 
 To test a local build the way CI does:
 

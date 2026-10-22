@@ -23,59 +23,35 @@ ENV WKHTMLTOX_VERSION=${WKHTMLTOX_VERSION}
 # Use noninteractive to get rid of apt-utils message
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install odoo deps
+# Runtime packages only. Odoo's Python packages come from pip, so no Debian python3-* packages;
+# libcairo2, libldap, libsasl2, and libmagic1 are the shared libraries those packages load.
 # hadolint ignore=DL3008
-RUN apt-get -qq update \
+RUN . /etc/os-release \
+    && apt-get -qq update \
     && apt-get -qq install -y --no-install-recommends \
-    # Odoo dependencies
     ca-certificates \
     curl \
-    dirmngr \
-    fonts-noto-cjk \
-    gnupg \
-    libmagic1 \
-    libssl-dev \
-    node-less \
-    npm \
-    # This uses a buggy version of libmagic
-    # python3-magic \
-    python3-num2words \
-    python3-odf \
-    python3-pdfminer \
-    python3-pip \
-    python3-phonenumbers \
-    python3-pyldap \
-    python3-qrcode \
-    python3-renderpm \
-    python3-setuptools \
-    python3-slugify \
-    python3-vobject \
-    python3-watchdog \
-    python3-xlrd \
-    python3-xlwt \
-    # Other dependencies
-    git-core \
-    ffmpeg \
     fonts-liberation2 \
-    lsb-release \
+    fonts-noto-cjk \
+    libcairo2 \
+    libldap-2.5-0 \
+    libmagic1 \
+    libsasl2-2 \
+    node-less \
+    nodejs \
     unzip \
-    zip \
     xz-utils \
-    && \
-    if [ "$(uname -m)" = "aarch64" ]; then \
-        curl -o wkhtmltox.deb -sSL https://github.com/wkhtmltopdf/packaging/releases/download/${WKHTMLTOX_VERSION}/wkhtmltox_${WKHTMLTOX_VERSION}.$(lsb_release -cs)_arm64.deb \
-    ; else \
-        curl -o wkhtmltox.deb -sSL https://github.com/wkhtmltopdf/packaging/releases/download/${WKHTMLTOX_VERSION}/wkhtmltox_${WKHTMLTOX_VERSION}.$(lsb_release -cs)_amd64.deb \
-    ; fi \
+    zip \
+    && curl -o wkhtmltox.deb -sSL "https://github.com/wkhtmltopdf/packaging/releases/download/${WKHTMLTOX_VERSION}/wkhtmltox_${WKHTMLTOX_VERSION}.${VERSION_CODENAME}_$(dpkg --print-architecture).deb" \
     && apt-get install -y --no-install-recommends ./wkhtmltox.deb \
     && apt-get autopurge -yqq \
     && rm -rf /var/lib/apt/lists/* wkhtmltox.deb /tmp/*
 
 # install latest postgresql-client
-RUN apt-get -qq update \
-    && apt-get -qq install -y --no-install-recommends \
-    lsb-release \
-    && echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+RUN . /etc/os-release \
+    && apt-get -qq update \
+    && apt-get -qq install -y --no-install-recommends dirmngr gnupg \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt/ ${VERSION_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
     && GNUPGHOME="$(mktemp -d)" \
     && export GNUPGHOME \
     && repokey='B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8' \
@@ -83,22 +59,30 @@ RUN apt-get -qq update \
     && gpg --batch --armor --export "${repokey}" > /etc/apt/trusted.gpg.d/pgdg.gpg.asc \
     && gpgconf --kill all \
     && rm -rf "$GNUPGHOME" \
-    && apt-get -qq install -y --no-install-recommends postgresql-client libpq-dev \
+    && apt-get -qq update \
+    && apt-get -qq install -y --no-install-recommends postgresql-client \
     && rm -f /etc/apt/sources.list.d/pgdg.list \
+    && apt-get purge -yqq --auto-remove dirmngr gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install rtlcss (on Debian buster)
-RUN npm install -g rtlcss \
-    && rm -Rf ~/.npm /tmp/*
+# Install rtlcss; npm is only needed for this step.
+RUN apt-get -qq update \
+    && apt-get -qq install -y --no-install-recommends npm \
+    && npm install -g rtlcss \
+    && apt-get purge -yqq --auto-remove npm \
+    && rm -Rf ~/.npm /var/lib/apt/lists/* /tmp/*
 
 FROM base AS builder
 
 # Install hard & soft build dependencies
-RUN apt-get update \
+RUN . /etc/os-release \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt/ ${VERSION_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
     apt-utils dialog \
     apt-transport-https \
     build-essential \
+    git \
     libcairo2-dev \
     libfreetype6-dev \
     libfribidi-dev \
@@ -110,7 +94,9 @@ RUN apt-get update \
     liblcms2-dev \
     libldap2-dev \
     libopenjp2-7-dev \
+    libpq-dev \
     libsasl2-dev \
+    libssl-dev \
     libtiff5-dev \
     libxml2-dev \
     libxslt1-dev \
@@ -127,20 +113,23 @@ ARG ODOO_REF=${ODOO_VERSION}
 RUN git init /opt/odoo \
     && git -C /opt/odoo remote add origin https://github.com/odoo/odoo.git \
     && git -C /opt/odoo fetch --depth=1 origin ${ODOO_REF} \
-    && git -C /opt/odoo checkout --detach FETCH_HEAD \
-    && pip3 install --prefix=/usr/local --no-cache-dir --upgrade --requirement /opt/odoo/requirements.txt \
-    && pip3 -qq install --prefix=/usr/local --no-cache-dir --upgrade \
+    && git -C /opt/odoo checkout --detach FETCH_HEAD
+
+# Install into /install, so the image copies only what pip adds and not the Python it already has.
+RUN pip3 install --prefix=/install --no-cache-dir --upgrade --requirement /opt/odoo/requirements.txt \
+    && pip3 -qq install --prefix=/install --no-cache-dir --upgrade \
     rlpycairo \
     'websocket-client~=0.56' \
     packaging \
     phonenumbers \
-    && apt-get autopurge -yqq \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
-RUN pip3 install --editable /opt/odoo --config-settings editable_mode=compat \
-    && rm -rf /var/lib/apt/lists/* /tmp/*
+# PYTHONPATH lets pip see what /install already holds, so it adds only what setup.py needs beyond requirements.txt (pypdf).
+RUN PYTHONPATH="$(python3 -c "import sysconfig; print(sysconfig.get_path('purelib', vars={'base': '/install', 'platbase': '/install'}))")" \
+    pip3 install --prefix=/install --no-cache-dir --editable /opt/odoo --config-settings editable_mode=compat \
+    && rm -rf /opt/odoo/.git /var/lib/apt/lists/* /tmp/*
 
-FROM base AS production
+FROM base AS runtime
 
 ARG ODOO_USER
 ARG APP_UID
@@ -166,9 +155,13 @@ RUN mkdir -p ${ODOO_DATA_DIR} ${ODOO_EXTRA_ADDONS} /etc/odoo \
 
 VOLUME ["/var/lib/odoo/data"]
 
-COPY --link --chown=${APP_UID}:${APP_GID} --from=builder /usr/local /usr/local
+COPY --link --chown=${APP_UID}:${APP_GID} --from=builder /install /usr/local
 COPY --link --chown=${APP_UID}:${APP_GID} --from=builder /opt/odoo ${ODOO_BASEPATH}
-COPY --link --chmod=0755 ./resources/entrypoint.sh ./resources/getaddons.py ./resources/dockerdoo_init.py /
+
+# Compiled once here, so each new container starts without compiling Odoo's code.
+RUN python3 -m compileall -q -j 0 "$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" ${ODOO_BASEPATH}/odoo ${ODOO_BASEPATH}/addons
+
+COPY --link --chmod=0755 ./resources/entrypoint.sh ./resources/getaddons.py ./resources/dockerdoo_init.py ./resources/containerlimits.py /
 # Add-ons to bake into the image, if any.
 COPY --link --chown=${APP_UID}:${APP_GID} ./custom ${ODOO_EXTRA_ADDONS}
 
@@ -180,3 +173,41 @@ HEALTHCHECK CMD curl --fail --silent "http://127.0.0.1:${ODOO_HTTP_PORT:-${PORT:
 ENTRYPOINT ["/entrypoint.sh"]
 
 CMD ["odoo"]
+
+# The runtime plus what working on add-ons inside the container needs: compilers and headers for add-on
+# requirements, git, npm, ffmpeg for browser-test screencasts, watchdog for --dev=reload, and debugpy.
+FROM runtime AS development
+
+ARG ODOO_USER
+
+# libpq-dev must match the libpq of the PGDG postgresql-client in base, as in the builder.
+RUN . /etc/os-release \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt/ ${VERSION_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get -qq update \
+    && apt-get -qq install -y --no-install-recommends \
+    build-essential \
+    ffmpeg \
+    git \
+    htop \
+    less \
+    libffi-dev \
+    libjpeg62-turbo-dev \
+    libldap2-dev \
+    libpq-dev \
+    libsasl2-dev \
+    libssl-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    nano \
+    npm \
+    openssh-client \
+    sudo \
+    zlib1g-dev \
+    && echo "${ODOO_USER} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${ODOO_USER} \
+    && chmod 0440 /etc/sudoers.d/${ODOO_USER} \
+    && pip3 install --no-cache-dir debugpy watchdog \
+    && rm -f /etc/apt/sources.list.d/pgdg.list \
+    && rm -rf /var/lib/apt/lists/* /tmp/*
+
+# Last, so a build without --target produces the production image.
+FROM runtime AS production
