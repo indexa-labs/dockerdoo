@@ -10,7 +10,7 @@ An Odoo 20 Community image for hosted platforms such as Railway, Render, or Kube
 gh attestation verify oci://ghcr.io/indexa-labs/dockerdoo:20.0 --owner indexa-labs
 ```
 
-GitHub Actions builds the current Odoo `20.0` branch weekly and on every change, for `linux/amd64` and `linux/arm64`. It publishes only after `tests/test_hosted.py` and Odoo's own base tests pass on both. The image installs Odoo's pinned Python requirements and has no `sudo` or developer tools.
+GitHub Actions builds the current Odoo `20.0` branch weekly and on every change, for `linux/amd64` and `linux/arm64`. It publishes only after `tests/test_hosted.py` and Odoo's own base tests pass on both. The image installs Odoo's pinned Python requirements and has no `sudo` or developer tools: no `git`, no `npm`, no `ffmpeg` (only Odoo's browser-test screencasts use it), and no `-dev` packages. It is 2.8 GB unpacked and 0.54 GB compressed, and the newest `postgresql-client` is installed so that `odoo db dump` works against current servers.
 
 ## Configuration
 
