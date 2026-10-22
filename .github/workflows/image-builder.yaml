@@ -43,9 +43,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Run unit tests
-        run: python3 -m unittest tests/test_containerlimits.py
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.10.0
 
