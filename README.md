@@ -50,6 +50,10 @@ Database creation and upgrades run under a PostgreSQL advisory lock, so containe
 
 Odoo 20 serves websockets on a separate port when `ODOO_WORKERS` is above zero. A platform that routes one port per service needs `ODOO_WORKERS=0` or a reverse proxy in front of both ports.
 
+## Behind a proxy
+
+With `ODOO_PROXY_MODE=True`, Odoo 20 trusts `X-Forwarded-For` and `X-Forwarded-Proto` only on a request that also carries `X-Forwarded-Host` (`odoo/http/router.py` and `odoo/http/server.py`). Railway, nginx, and Caddy send it. Fly.io and AWS load balancers do not, and behind them Odoo sees plain `http` and the proxy's address: redirects use `http`, and the login cooldown counts every user as one client. The image does not work around this, because Odoo's maintainers keep the check on purpose: it shows that the proxy forces the header instead of passing a client's (odoo/odoo#63277, #70117). Where the platform does not send it, put a proxy that sets `X-Forwarded-Host` to the `Host` it received in front of Odoo. The right fix is in Odoo: trust the client address and scheme whenever proxy mode is on, and keep trusting the host only when the header is present.
+
 ## Add-ons
 
 Add-ons in `./custom` are copied into the image at build time, and folders mounted under `/mnt/extra-addons` are found at start. To ship your own add-ons and Python dependencies, build on a pinned digest:
