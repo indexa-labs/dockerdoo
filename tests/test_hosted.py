@@ -172,6 +172,15 @@ try:
     healthy(loaded + 'r')
     assert created(loaded + 'r', 'RESTORING DB') == 0
 
+    # Only a database created with INIT_WITH_DEMO has Odoo's demo data.
+    demo = tag + '-e'
+    start(demo, 'probe_demo', INIT_WITH_DEMO='1')
+    healthy(demo)
+    assert sql("SELECT demo FROM ir_module_module WHERE name = 'base'", 'probe_demo') == 't'
+    assert sql("SELECT demo FROM ir_module_module WHERE name = 'contacts'", 'probe_demo') == 't'
+    assert sql("SELECT demo FROM ir_module_module WHERE name = 'base'", 'probe') == 'f'
+    sh('docker', 'rm', '-f', demo)
+
     # A later start without root, with a newer manifest, upgrades the module and creates nothing.
     sh('docker', 'rm', '-f', first)
     module('1.1')
