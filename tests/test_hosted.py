@@ -58,7 +58,7 @@ def start(name, dbname, root=True, **env):
        '-e', 'ODOO_DATA_DIR=/srv/odoo/data', '-e', 'PORT=9000', '-e', 'ODOO_EXTRA_OPTIONS=probe_option = 42',
        '-e', 'PGHOST=' + pg, '-e', 'PGUSER=odoo_app', '-e', 'PGPASSWORD=' + app_pw,
        '-e', f'DB_ADMIN_URL=postgresql://pgadmin:{admin_pw}@{pg}/postgres', '-e', 'PGDATABASE=' + dbname,
-       '-e', 'AUTO_INIT=1', '-e', 'AUTO_UPGRADE=1', '-e', 'INIT_MODULES=contacts,probe_hosted',
+       '-e', 'AUTO_INIT=1', '-e', 'AUTO_UPGRADE=1', '-e', 'INIT_MODULES=contacts,probe_hosted,cloud_storage_google',
        *(arg for k, v in env.items() for arg in ('-e', f'{k}={v}')), image)
     names.append(name)
 
@@ -123,11 +123,13 @@ try:
     for tool in ('rtlcss', 'lessc', 'wkhtmltopdf', 'pg_dump', 'psql'):
         sh('docker', 'exec', first, tool, '--version')
     assert sh('docker', 'exec', first, 'bash', '-c', "echo '<h1>hola</h1>' | wkhtmltopdf -q - - | head -c 4") == '%PDF'
+    # Python packages that Odoo's apps import and requirements.txt omits.
+    sh('docker', 'exec', first, 'python3', '-c', 'import google.auth, jwt, pdfminer, odf')
     assert 'DB_ADMIN_URL' not in sh('docker', 'exec', '--privileged', '-u', '0', first, 'cat', '/proc/1/environ')
     # The administrator enables pgvector, which Odoo's AI apps need and the application role cannot create.
     assert sql("SELECT count(*) FROM pg_extension WHERE extname = 'vector'", 'probe') == '1'
     assert sql("SELECT rolsuper, rolcreatedb FROM pg_roles WHERE rolname = 'odoo_app'") == 'f|t'
-    assert sql("SELECT count(*) FROM ir_module_module WHERE state = 'installed' AND name IN ('contacts', 'probe_hosted')", 'probe') == '2'
+    assert sql("SELECT count(*) FROM ir_module_module WHERE state = 'installed' AND name IN ('contacts', 'probe_hosted', 'cloud_storage_google')", 'probe') == '3'
 
     def rpc(path, params, name=first):
         body = json.dumps({'jsonrpc': '2.0', 'method': 'call', 'params': params})
@@ -195,9 +197,12 @@ try:
 
     if args.native_tests:
         # The exclusions are timing- or environment-sensitive tests that fail in containers regardless of the image.
+        # test_no_clip is outside Odoo's standard tests (-standard) and expects pdfminer to read 3 text boxes per page,
+        # which wkhtmltopdf's PDF does not give here or in the official odoo:20.0 image.
         skip = ['base:TestPerformance.test_frequencies_1ms_sleep', 'base:TestSyncRecorder.test_sync_recorder',
                 'test_retry_failures', 'test_retry_disable', 'base:TestRunnerLogging.test_assertQueryCount',
-                'base:TestExpression.test_invalid', 'base:TestUsersIdentitycheck.test_revoke_all_devices']
+                'base:TestExpression.test_invalid', 'base:TestUsersIdentitycheck.test_revoke_all_devices',
+                'base:TestReportsRenderingLimitations.test_no_clip']
         # The image's health probe would show up as a stray process in Odoo's test teardown checks.
         run = subprocess.run(['docker', 'run', '--rm', '--no-healthcheck', '--network', net, '-e', 'PGHOST=' + pg, '-e', 'PGUSER=odoo_app',
                               '-e', 'PGPASSWORD=' + app_pw, image, 'odoo', 'server', '-d', 'native_tests', '-i', 'base',
