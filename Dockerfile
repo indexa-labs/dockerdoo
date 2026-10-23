@@ -149,6 +149,8 @@ RUN addgroup --system --gid ${APP_GID} ${ODOO_USER} \
 
 # Odoo 20 reads ODOO_<OPTION> and PG* variables itself (see odoo/tools/config.py); these are the image's defaults.
 # Odoo listens on 127.0.0.1 unless told otherwise, which a container's port mapping cannot reach.
+# libpq waits forever for a connection by default, so Odoo hangs on the address of a replaced PostgreSQL container
+# instead of retrying until it reaches the new one.
 ENV APP_UID=${APP_UID} \
     APP_GID=${APP_GID} \
     ODOO_BASEPATH=${ODOO_BASEPATH} \
@@ -156,7 +158,8 @@ ENV APP_UID=${APP_UID} \
     ODOO_RC=/etc/odoo/odoo.conf \
     ODOO_DATA_DIR=/var/lib/odoo/data \
     ODOO_LIST_DB=False \
-    ODOO_HTTP_INTERFACE=0.0.0.0
+    ODOO_HTTP_INTERFACE=0.0.0.0 \
+    PGCONNECT_TIMEOUT=10
 
 RUN mkdir -p ${ODOO_DATA_DIR} ${ODOO_EXTRA_ADDONS} /etc/odoo \
     && chown ${APP_UID}:${APP_GID} ${ODOO_DATA_DIR} ${ODOO_EXTRA_ADDONS} /etc/odoo

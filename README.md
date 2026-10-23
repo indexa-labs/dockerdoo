@@ -30,6 +30,7 @@ Odoo 20 reads every server option from `ODOO_<OPTION>` (for example `ODOO_WORKER
 | `ODOO_ADDONS_PATH` | Add-on folders found under `/mnt/extra-addons`, then Odoo's add-ons |
 | `ODOO_DATA_DIR` | `/var/lib/odoo/data`; mount the volume here |
 | `ODOO_LOG_CONFIG` | Not set, so Odoo logs text to stderr. `/dockerdoo_logging.json` logs JSON to stdout; see [Logging](#logging) |
+| `PGCONNECT_TIMEOUT` | `10` seconds per connection attempt (libpq waits forever by default), so Odoo reconnects after its PostgreSQL is replaced |
 
 Add-on options that Odoo has no variable for go in `ODOO_EXTRA_OPTIONS`, one `key = value` per line; the image writes them to the configuration file.
 
