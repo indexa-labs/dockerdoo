@@ -29,6 +29,7 @@ Odoo 20 reads every server option from `ODOO_<OPTION>` (for example `ODOO_WORKER
 | `ODOO_HTTP_INTERFACE` | `0.0.0.0` (Odoo's own default is `127.0.0.1`) |
 | `ODOO_ADDONS_PATH` | Add-on folders found under `/mnt/extra-addons`, then Odoo's add-ons |
 | `ODOO_DATA_DIR` | `/var/lib/odoo/data`; mount the volume here |
+| `ODOO_LOG_CONFIG` | Not set, so Odoo logs text to stderr. `/dockerdoo_logging.json` logs JSON to stdout; see [Logging](#logging) |
 
 Add-on options that Odoo has no variable for go in `ODOO_EXTRA_OPTIONS`, one `key = value` per line; the image writes them to the configuration file.
 
@@ -52,6 +53,16 @@ Before the server starts, the image does what hosted platforms need and Odoo doe
 Database creation and upgrades run under a PostgreSQL advisory lock, so containers started together change a database once. The container starts as root, takes ownership of `ODOO_DATA_DIR` if needed, and drops to the `odoo` user; set `ODOO_RUN_AS_ROOT=1` to keep root, or start it as uid 1000 on a volume it already owns.
 
 Odoo 20 serves websockets on a separate port when `ODOO_WORKERS` is above zero. A platform that routes one port per service needs `ODOO_WORKERS=0` or a reverse proxy in front of both ports.
+
+## Logging
+
+Odoo writes its log to stderr, and hosts such as Railway show every stderr line as an error, whatever its level. Those hosts read structured logs instead: one JSON object per line on stdout, with a `message` and a `level`. Set `ODOO_LOG_CONFIG=/dockerdoo_logging.json` on such a host, and Odoo writes each record that way:
+
+```json
+{"time": "2026-10-22T20:40:10.246+00:00", "level": "info", "logger": "odoo.registry", "dbname": "jsonlog", "message": "module base: creating or updating database tables"}
+```
+
+`level` is `debug`, `info`, `warn`, or `error`: Python's `WARNING` becomes `warn`, and `CRITICAL` becomes `error`. A traceback is part of its record's `message`, so a record stays on one line. `ODOO_LOG_LEVEL` and `ODOO_LOG_HANDLER` keep setting the levels, from the default `INFO`. With this configuration, Odoo ignores `ODOO_LOGFILE`, `ODOO_SYSLOG`, and `ODOO_LOG_DB`.
 
 ## Behind a proxy
 

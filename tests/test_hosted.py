@@ -1,8 +1,8 @@
 """Run the image the way hosted platforms do and check the result.
 
 Root start on a root-owned volume, a platform PORT, Odoo before PostgreSQL, a superuser-only
-PostgreSQL, automatic database creation and upgrade, a database loaded from a dump, restart, two
-containers starting together, and, with --native-tests, Odoo's own base tests.
+PostgreSQL, automatic database creation and upgrade, a database loaded from a dump, JSON logs on
+stdout, restart, two containers starting together, and, with --native-tests, Odoo's own base tests.
 """
 
 import argparse
@@ -137,6 +137,19 @@ try:
     assert 'error' in rpc('/web/database/list', {})
     assert sh('docker', 'exec', '-i', first, 'odoo', 'shell', '-d', 'probe', '--no-http',
               input="from odoo.tools import config; print('probe_option=' + config['probe_option'])").count('probe_option=42') == 1
+
+    # Hosts that read structured logs get one JSON object per record on stdout and nothing on stderr, and Odoo's level options still apply.
+    probe = "import logging\nlog = logging.getLogger('odoo.probe')\nlog.info('hello')\nlog.warning('careful')\ntry:\n    1 / 0\nexcept ZeroDivisionError:\n    log.exception('broken')\n"
+
+    def json_log(**env):
+        r = subprocess.run(['docker', 'exec', '-i', '-e', 'ODOO_LOG_CONFIG=/dockerdoo_logging.json', *(arg for k, v in env.items() for arg in ('-e', f'{k}={v}')),
+                            first, 'odoo', 'shell', '-d', 'probe', '--no-http'], input=probe, capture_output=True, text=True)
+        assert r.returncode == 0 and not r.stderr, r.stderr
+        return [json.loads(line) for line in r.stdout.splitlines()]
+    records = [r for r in json_log() if r['logger'] == 'odoo.probe']
+    assert [r['level'] for r in records] == ['info', 'warn', 'error']
+    assert 'Traceback' in records[-1]['message'] and 'ZeroDivisionError' in records[-1]['message']
+    assert {r['level'] for r in json_log(ODOO_LOG_LEVEL='warn')} == {'warn', 'error'}
 
     # pg_dump must be as new as the server, or Odoo's dump and backup fail.
     sh('docker', 'exec', first, 'odoo', 'db', 'dump', 'probe', '/srv/odoo/data/probe.zip')
