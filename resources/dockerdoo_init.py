@@ -81,7 +81,8 @@ if dbname and (env.get("DB_ADMIN_URL") or "1" in (env.get("AUTO_INIT"), env.get(
                 # and the shell below sets the real one from the environment.
                 init = ["db", "init", dbname, "--language", env.get("INIT_LANGUAGE", "en_US"),
                         "--username", env.get("INIT_ADMIN_LOGIN", "admin"), "--password", secrets.token_hex(24)]
-                odoo(*init, *(["--country", env["INIT_COUNTRY"]] if env.get("INIT_COUNTRY") else []))
+                odoo(*init, *(["--country", env["INIT_COUNTRY"]] if env.get("INIT_COUNTRY") else []),
+                     *(["--with-demo"] if env.get("INIT_WITH_DEMO") == "1" else []))
                 enable_pgvector()  # Before the modules install, because an AI app's install hook needs it.
             setup = "import os\nenv.ref('base.user_admin').password = os.environ['INIT_ADMIN_PASSWORD']\n"
             try:
