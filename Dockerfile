@@ -122,6 +122,7 @@ RUN pip3 install --prefix=/install --no-cache-dir --upgrade --requirement /opt/o
     'websocket-client~=0.56' \
     packaging \
     phonenumbers \
+    markdown2 \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
 # PYTHONPATH lets pip see what /install already holds, so it adds only what setup.py needs beyond requirements.txt (pypdf).
