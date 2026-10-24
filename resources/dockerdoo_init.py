@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import time
+from contextlib import closing
 
 import psycopg2
 from odoo.modules.module import Manifest
@@ -43,13 +44,22 @@ def filestore(name):
 
 
 def copy_database(cur, source, target):
-    """Replace target and its files with an exact copy of source, database.uuid included."""
-    cur.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(target)))
-    cur.execute(sql.SQL("CREATE DATABASE {} TEMPLATE {}").format(sql.Identifier(target), sql.Identifier(source)))
-    shutil.rmtree(filestore(target), ignore_errors=True)
+    """Replace target and its files with an exact copy of source, database.uuid included.
+
+    The copy is made under another name first, so a copy that fails leaves target as it was.
+    """
+    staging = f"{target}_copy"
+    cur.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(staging)))
+    cur.execute(sql.SQL("CREATE DATABASE {} TEMPLATE {}").format(sql.Identifier(staging), sql.Identifier(source)))
+    shutil.rmtree(filestore(staging), ignore_errors=True)
     if os.path.isdir(filestore(source)):
         # Odoo never rewrites a stored file, so the copy can share them.
-        shutil.copytree(filestore(source), filestore(target), copy_function=os.link)
+        shutil.copytree(filestore(source), filestore(staging), copy_function=os.link)
+    cur.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(target)))
+    cur.execute(sql.SQL("ALTER DATABASE {} RENAME TO {}").format(sql.Identifier(staging), sql.Identifier(target)))
+    shutil.rmtree(filestore(target), ignore_errors=True)
+    if os.path.isdir(filestore(staging)):
+        os.rename(filestore(staging), filestore(target))
 
 
 def database_exists(cur, name):
@@ -93,11 +103,12 @@ if dbname and (env.get("DB_ADMIN_URL") or baseline or "1" in (env.get("AUTO_INIT
     exists = database_exists(cur, dbname)
     saving = baseline and env.get("SAVE_BASELINE") == "1"
     try:
-        if exists and baseline and not saving:
+        if baseline and not saving:
             if database_exists(cur, baseline):
                 copy_database(cur, baseline, dbname)
+                exists = True
                 print(f"Restored {dbname} from its baseline, {baseline}")
-            else:
+            elif exists:
                 print(f"{baseline} is not saved yet; start once with SAVE_BASELINE=1 to save {dbname} as it")
         if exists:
             enable_pgvector()
@@ -133,7 +144,8 @@ if dbname and (env.get("DB_ADMIN_URL") or baseline or "1" in (env.get("AUTO_INIT
             # odoo module upgrade reads records before it updates the schema, so a release that adds a
             # stored field fails there; odoo server -u updates the schema first.
             config.parse_config([], setup_logging=False)
-            with psycopg2.connect(dbname=dbname) as db, db.cursor() as dbcur:
+            # The connection's context only ends the transaction; closing it lets SAVE_BASELINE copy the database.
+            with closing(psycopg2.connect(dbname=dbname)) as db, db.cursor() as dbcur:
                 dbcur.execute("SELECT name, latest_version FROM ir_module_module WHERE state = 'installed'")
                 outdated = [name for name, version in dbcur.fetchall()
                             if (manifest := Manifest.for_addon(name, display_warning=False))

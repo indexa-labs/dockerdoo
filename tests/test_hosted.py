@@ -197,6 +197,13 @@ try:
     assert sql(uuid, 'probe_demo') == sql(uuid, 'probe_demo_baseline')
     assert 'later' not in sh('docker', 'exec', kept + 'r', 'ls', '/srv/odoo/data/filestore/probe_demo').split()
     sh('docker', 'rm', '-f', kept + 'r')
+    # A missing database comes back from the baseline rather than being created anew.
+    sql('DROP DATABASE probe_demo WITH (FORCE)')
+    start(kept + 'm', 'probe_demo', **saved)
+    healthy(kept + 'm')
+    assert created(kept + 'm') == 0
+    assert sql(uuid, 'probe_demo') == sql(uuid, 'probe_demo_baseline')
+    sh('docker', 'rm', '-f', kept + 'm')
 
     # A later start without root, with a newer manifest, upgrades the module and creates nothing.
     sh('docker', 'rm', '-f', first)
