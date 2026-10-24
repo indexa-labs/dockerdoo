@@ -3,6 +3,7 @@
 
 import os
 import secrets
+import shutil
 import subprocess
 import sys
 import time
@@ -15,6 +16,9 @@ from psycopg2.extensions import make_dsn
 
 env = os.environ
 dbname = env.get("PGDATABASE", "")
+baseline = env.get("BASELINE_DATABASE", "")
+if baseline and baseline == dbname:
+    sys.exit("BASELINE_DATABASE names the saved copy, so it must differ from PGDATABASE")
 
 
 def connect(dsn=None):
@@ -32,6 +36,25 @@ def connect(dsn=None):
 
 def odoo(*args, stdin=None):
     subprocess.run(["odoo", *args], input=stdin, text=True, check=True)
+
+
+def filestore(name):
+    return os.path.join(env.get("ODOO_DATA_DIR", ""), "filestore", name)
+
+
+def copy_database(cur, source, target):
+    """Replace target and its files with an exact copy of source, database.uuid included."""
+    cur.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(target)))
+    cur.execute(sql.SQL("CREATE DATABASE {} TEMPLATE {}").format(sql.Identifier(target), sql.Identifier(source)))
+    shutil.rmtree(filestore(target), ignore_errors=True)
+    if os.path.isdir(filestore(source)):
+        # Odoo never rewrites a stored file, so the copy can share them.
+        shutil.copytree(filestore(source), filestore(target), copy_function=os.link)
+
+
+def database_exists(cur, name):
+    cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,))
+    return bool(cur.fetchone())
 
 
 def enable_pgvector():
@@ -63,13 +86,19 @@ if env.get("DB_ADMIN_URL"):
     admin.close()
 
 conn = connect()
-if dbname and (env.get("DB_ADMIN_URL") or "1" in (env.get("AUTO_INIT"), env.get("AUTO_UPGRADE"))):
+if dbname and (env.get("DB_ADMIN_URL") or baseline or "1" in (env.get("AUTO_INIT"), env.get("AUTO_UPGRADE"))):
     cur = conn.cursor()
     # Containers started together change the database once.
     cur.execute("SELECT pg_advisory_lock(727383001)")
-    cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
-    exists = cur.fetchone()
+    exists = database_exists(cur, dbname)
+    saving = baseline and env.get("SAVE_BASELINE") == "1"
     try:
+        if exists and baseline and not saving:
+            if database_exists(cur, baseline):
+                copy_database(cur, baseline, dbname)
+                print(f"Restored {dbname} from its baseline, {baseline}")
+            else:
+                print(f"{baseline} is not saved yet; start once with SAVE_BASELINE=1 to save {dbname} as it")
         if exists:
             enable_pgvector()
         if env.get("AUTO_INIT") == "1" and not exists:
@@ -114,6 +143,9 @@ if dbname and (env.get("DB_ADMIN_URL") or "1" in (env.get("AUTO_INIT"), env.get(
             else:
                 # odoo server -u refreshes the apps list; without it, add-ons new to the image stay unlisted.
                 odoo("shell", "-d", dbname, "--no-http", stdin="env['ir.module.module'].update_list()\nenv.cr.commit()\n")
+        if saving and database_exists(cur, dbname):
+            copy_database(cur, dbname, baseline)
+            print(f"Saved {dbname} as its baseline, {baseline}")
     except subprocess.CalledProcessError as error:
         sys.exit(f"Preparing the database failed in odoo {error.cmd[1]}; the server does not start")
 conn.close()
