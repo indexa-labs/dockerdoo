@@ -181,6 +181,30 @@ try:
     assert sql("SELECT demo FROM ir_module_module WHERE name = 'base'", 'probe') == 'f'
     sh('docker', 'rm', '-f', demo)
 
+    # With BASELINE_DATABASE, every start puts the database and its files back to the saved copy, identity included.
+    kept = tag + '-k'
+    saved = {'BASELINE_DATABASE': 'probe_demo_baseline'}
+    uuid = "SELECT value FROM ir_config_parameter WHERE key = 'database.uuid'"
+    start(kept, 'probe_demo', SAVE_BASELINE='1', **saved)
+    healthy(kept)
+    assert sql(uuid, 'probe_demo_baseline') == sql(uuid, 'probe_demo')
+    sql("INSERT INTO ir_config_parameter (key, value) VALUES ('probe.later', 'changed')", 'probe_demo')
+    sh('docker', 'exec', '-u', '1000', kept, 'touch', '/srv/odoo/data/filestore/probe_demo/later')
+    sh('docker', 'rm', '-f', kept)
+    start(kept + 'r', 'probe_demo', **saved)
+    healthy(kept + 'r')
+    assert sql("SELECT count(*) FROM ir_config_parameter WHERE key = 'probe.later'", 'probe_demo') == '0'
+    assert sql(uuid, 'probe_demo') == sql(uuid, 'probe_demo_baseline')
+    assert 'later' not in sh('docker', 'exec', kept + 'r', 'ls', '/srv/odoo/data/filestore/probe_demo').split()
+    sh('docker', 'rm', '-f', kept + 'r')
+    # A missing database comes back from the baseline rather than being created anew.
+    sql('DROP DATABASE probe_demo WITH (FORCE)')
+    start(kept + 'm', 'probe_demo', **saved)
+    healthy(kept + 'm')
+    assert created(kept + 'm') == 0
+    assert sql(uuid, 'probe_demo') == sql(uuid, 'probe_demo_baseline')
+    sh('docker', 'rm', '-f', kept + 'm')
+
     # A later start without root, with a newer manifest, upgrades the module and creates nothing.
     sh('docker', 'rm', '-f', first)
     module('1.1')
