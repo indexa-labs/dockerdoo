@@ -115,6 +115,16 @@ RUN git init /opt/odoo \
     && git -C /opt/odoo fetch --depth=1 origin ${ODOO_REF} \
     && git -C /opt/odoo checkout --detach FETCH_HEAD
 
+# Carried until a 20.0 build contains odoo/odoo#293193 (issues #292774 and #293047); then delete patches/ and this step.
+# Skipped when the checkout already has the change; the build fails when it applies neither way.
+COPY patches/odoo-attachment-db-stream.patch /tmp/
+RUN if git -C /opt/odoo apply --check -R /tmp/odoo-attachment-db-stream.patch 2>/dev/null; then \
+        echo "odoo-attachment-db-stream.patch is already upstream; skipping"; \
+    else \
+        git -C /opt/odoo apply /tmp/odoo-attachment-db-stream.patch; \
+    fi \
+    && rm /tmp/odoo-attachment-db-stream.patch
+
 # Install into /install, so the image copies only what pip adds and not the Python it already has.
 # The pinned packages are what Odoo's apps import beyond requirements.txt, at the versions tested with them.
 # The second pip cannot see what the first installed, and google-auth and pdfminer.six would pull a cryptography

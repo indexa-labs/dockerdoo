@@ -11,6 +11,7 @@ on:
       - .github/workflows/**
       - Dockerfile
       - custom/**
+      - patches/**
       - resources/**
       - tests/**
   pull_request:
@@ -19,6 +20,7 @@ on:
       - .github/workflows/**
       - Dockerfile
       - custom/**
+      - patches/**
       - resources/**
       - tests/**
 

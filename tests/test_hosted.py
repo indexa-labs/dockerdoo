@@ -205,6 +205,15 @@ try:
     assert sql(uuid, 'probe_demo') == sql(uuid, 'probe_demo_baseline')
     sh('docker', 'rm', '-f', kept + 'm')
 
+    # Asset bundles kept in the database are served, not redirected to their own address (odoo/odoo#292774).
+    shell = ('docker', 'exec', '-i', first, 'odoo', 'shell', '-d', 'probe', '--no-http')
+    sh(*shell, input="env['ir.config_parameter'].set_str('ir_attachment.location', 'db')\nenv.cr.commit()")
+    bundles = re.findall(r'/web/assets/[^"]+\.(?:css|js)', sh('docker', 'exec', first, 'curl', '-s', 'http://127.0.0.1:9000/web/login'))
+    assert bundles
+    for url in bundles[:2]:
+        assert sh('docker', 'exec', first, 'curl', '-s', '-o', '/dev/null', '-w', '%{http_code}', 'http://127.0.0.1:9000' + url) == '200', url
+    sh(*shell, input="env['ir.config_parameter'].set_str('ir_attachment.location', 'file')\nenv.cr.commit()")
+
     # A later start without root, with a newer manifest, upgrades the module and creates nothing.
     sh('docker', 'rm', '-f', first)
     module('1.1')

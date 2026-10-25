@@ -1,0 +1,24 @@
+Serve attachments that keep their content in the database even when they have a url.
+
+With ir_attachment.location set to db, asset bundles (url /web/assets/...) were answered
+with a 301 redirect to their own url, so the web client loaded without styles or scripts.
+Upstream: odoo/odoo issues #292774 and #293047, pull request #293193.
+
+The Dockerfile applies this after checking out Odoo, and skips it when the checkout already
+contains the change. Delete this file and that Dockerfile step once a 20.0 build contains the fix.
+
+diff --git a/odoo/addons/base/models/ir_attachment.py b/odoo/addons/base/models/ir_attachment.py
+index 88c4e073c1d..40682e97c91 100644
+--- a/odoo/addons/base/models/ir_attachment.py
++++ b/odoo/addons/base/models/ir_attachment.py
+@@ -1143,7 +1143,9 @@ class IrAttachment(models.Model):
+             except OSError:
+                 pass
+ 
+-        elif self.url:
++        elif self.url and not self.db_datas:
++            # the url of an attachment with content in the database (e.g. an
++            # asset bundle) is its own address, not a redirection target
+             return Stream(type='url', url=self.url, **kw)
+ 
+         data = self.raw.content
